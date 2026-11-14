@@ -426,35 +426,79 @@ function garmentGeometry(shaped, plan) {
 }
 
 // Stances: a rotation added on top of the idle breathing for a handful of the puppet's joints.
-// Axes (X Bot, found by posing it and looking): for the left arm, y swings it forward and z lifts it
-// out to the side (the right arm mirrors both), and x twists it, which here turns the elbows in so
-// the hands meet in front; a forearm's z bends the elbow (again mirrored); for a leg, x bends the
-// hip (negative, thigh forward) and the knee (positive); a foot's x keeps the sole flat.
+// Axes (X Bot, found by posing it and looking): for a leg, x bends the hip (negative, thigh
+// forward) and the knee (positive); a foot's x keeps the sole flat; the spine's x leans him in.
 // A player blends from one stance to the next, so a catch or a pass reads as a movement.
 const STANCES = {
-  // off the ball: knees bent, weight forward, hands up and ready
-  ready: { Spine: [0.16, 0, 0], LeftUpLeg: [-0.42, 0, 0.06], RightUpLeg: [-0.42, 0, -0.06], LeftLeg: [0.72, 0, 0], RightLeg: [0.72, 0, 0], LeftFoot: [-0.3, 0, 0], RightFoot: [-0.3, 0, 0], LeftArm: [-0.6, 0.5, 0.05], RightArm: [-0.6, -0.5, -0.05], LeftForeArm: [0, 0, 0.85], RightForeArm: [0, 0, -0.85] },
-  // on the ball: lower, the right hand working the ball at the hip, the left arm guarding it
-  dribble: { Spine: [0.3, 0, 0], LeftUpLeg: [-0.55, 0, 0.08], RightUpLeg: [-0.5, 0, -0.08], LeftLeg: [0.9, 0, 0], RightLeg: [0.85, 0, 0], LeftFoot: [-0.35, 0, 0], RightFoot: [-0.35, 0, 0], LeftArm: [-0.9, 0.95, 0.1], RightArm: [-0.5, -0.45, -0.3], LeftForeArm: [0, 0, 0.9], RightForeArm: [0, 0, -0.45] },
+  // off the ball: easy athletic stance, arms hanging loose with a little bend at the elbow
+  relaxed: {
+    body: { Spine: [0.1, 0, 0], LeftUpLeg: [-0.28, 0, 0.05], RightUpLeg: [-0.28, 0, -0.05], LeftLeg: [0.48, 0, 0], RightLeg: [0.48, 0, 0], LeftFoot: [-0.2, 0, 0], RightFoot: [-0.2, 0, 0] },
+    arms: { LeftArm: [0.22, -1, 0.06], LeftForeArm: [0.12, -1, 0.4], RightArm: [-0.22, -1, 0.06], RightForeArm: [-0.12, -1, 0.4] },
+  },
+  // a guard with the ball: low, the right hand working the ball out in front, the left arm guarding it
+  dribble: {
+    body: { Spine: [0.3, 0, 0], LeftUpLeg: [-0.55, 0, 0.08], RightUpLeg: [-0.5, 0, -0.08], LeftLeg: [0.9, 0, 0], RightLeg: [0.85, 0, 0], LeftFoot: [-0.35, 0, 0], RightFoot: [-0.35, 0, 0] },
+    arms: { LeftArm: [0.35, -0.45, 0.85], LeftForeArm: [-0.1, 0.25, 1], RightArm: [-0.3, -1, 0.35], RightForeArm: [-0.15, -0.8, 0.75] },
+  },
+  // a forward or a big with the ball: squared up, the ball at his set point above the right eye
+  shoot: {
+    body: { Spine: [0.04, 0, 0], LeftUpLeg: [-0.32, 0, 0.05], RightUpLeg: [-0.32, 0, -0.05], LeftLeg: [0.55, 0, 0], RightLeg: [0.55, 0, 0], LeftFoot: [-0.22, 0, 0], RightFoot: [-0.22, 0, 0] },
+    arms: { RightArm: [-0.15, 0.35, 0.92], RightForeArm: [0.05, 1, 0.12], LeftArm: [0.55, 0.3, 0.8], LeftForeArm: [-0.5, 0.85, 0.15] },
+  },
   // a pass on its way: square up, both hands out together at the chest
-  catch: { Spine: [0.1, 0, 0], LeftUpLeg: [-0.3, 0, 0.05], RightUpLeg: [-0.3, 0, -0.05], LeftLeg: [0.5, 0, 0], RightLeg: [0.5, 0, 0], LeftFoot: [-0.2, 0, 0], RightFoot: [-0.2, 0, 0], LeftArm: [-0.9, 1.1, -0.15], RightArm: [-0.9, -1.1, 0.15], LeftForeArm: [0, 0, 0.8], RightForeArm: [0, 0, -0.8] },
+  catch: {
+    body: { Spine: [0.1, 0, 0], LeftUpLeg: [-0.3, 0, 0.05], RightUpLeg: [-0.3, 0, -0.05], LeftLeg: [0.5, 0, 0], RightLeg: [0.5, 0, 0], LeftFoot: [-0.2, 0, 0], RightFoot: [-0.2, 0, 0] },
+    arms: { LeftArm: [0.25, -0.25, 1], LeftForeArm: [-0.25, 0.2, 1], RightArm: [-0.25, -0.25, 1], RightForeArm: [0.25, 0.2, 1] },
+  },
   // a chest pass at its follow-through: arms punched straight out, leaning into it
-  pass: { Spine: [0.28, 0, 0], LeftUpLeg: [-0.5, 0, 0.05], RightUpLeg: [-0.2, 0, -0.05], LeftLeg: [0.6, 0, 0], RightLeg: [0.35, 0, 0], LeftFoot: [-0.1, 0, 0], RightFoot: [-0.15, 0, 0], LeftArm: [-0.4, 1.4, -0.15], RightArm: [-0.4, -1.4, 0.15], LeftForeArm: [0, 0, 0.15], RightForeArm: [0, 0, -0.15] },
+  pass: {
+    body: { Spine: [0.28, 0, 0], LeftUpLeg: [-0.5, 0, 0.05], RightUpLeg: [-0.2, 0, -0.05], LeftLeg: [0.6, 0, 0], RightLeg: [0.35, 0, 0], LeftFoot: [-0.1, 0, 0], RightFoot: [-0.15, 0, 0] },
+    arms: { LeftArm: [0.15, -0.05, 1], LeftForeArm: [-0.05, 0.05, 1], RightArm: [-0.15, -0.05, 1], RightForeArm: [0.05, 0.05, 1] },
+  },
 };
+// which stance a player takes when the ball is his: guards dribble, forwards and bigs square up to shoot
+const WITH_BALL = { PG: 'dribble', SG: 'dribble', SF: 'shoot', PF: 'shoot', C: 'shoot' };
 const stEuler = new THREE.Euler(), stQ = new THREE.Quaternion();
+const AIMS = [['LeftArm', 'LeftForeArm'], ['LeftForeArm', 'LeftHand'], ['RightArm', 'RightForeArm'], ['RightForeArm', 'RightHand']];
+const aimA = new THREE.Vector3(), aimB = new THREE.Vector3(), aimT = new THREE.Vector3(), aimQ = new THREE.Quaternion(), aimW = new THREE.Quaternion(), aimP = new THREE.Quaternion(), aimR = new THREE.Quaternion();
+// The body (spine, legs) takes added rotations; the arms are aimed. Each arm stance names the
+// direction the upper arm and the forearm point, in the player's own frame (x to his left, y up,
+// z ahead), and each bone is turned to point there, so the elbows bend exactly where they should.
 function applyStance(f, dt, snap) {
-  const rot = STANCES[f.stance] || {};
-  const k = snap || dt >= 1 ? 1 : 1 - Math.exp(-dt * 10);
-  const names = new Set(Object.values(STANCES).flatMap((s) => Object.keys(s)));
+  const st = STANCES[f.stance] || STANCES.relaxed;
+  const k = snap || dt >= 1 ? 1 : 1 - Math.exp(-dt * 9);
+  const names = new Set(Object.values(STANCES).flatMap((s) => Object.keys(s.body || {})));
   for (const name of names) {
     const bone = f.pBones[name];
     if (!bone) continue;
     let cur = f.cur.get(name);
     if (!cur) f.cur.set(name, (cur = new THREE.Quaternion()));
-    const r = rot[name];
+    const r = st.body?.[name];
     stQ.setFromEuler(r ? stEuler.set(r[0], r[1], r[2]) : stEuler.set(0, 0, 0));
     cur.slerp(stQ, k);
     bone.quaternion.multiply(cur);
+  }
+  f.aim ||= {};
+  for (const [name] of AIMS) {
+    const want = st.arms?.[name] || STANCES.relaxed.arms[name];
+    aimT.set(want[0], want[1], want[2]).normalize();
+    f.aim[name] = f.aim[name] ? f.aim[name].lerp(aimT, k).normalize() : aimT.clone();
+  }
+}
+function aimArms(f) {
+  f.puppet.updateMatrixWorld(true);
+  f.root.getWorldQuaternion(aimR);
+  for (const [name, child] of AIMS) {
+    const bone = f.pBones[name], end = f.pBones[child];
+    if (!bone || !end || !f.aim?.[name]) continue;
+    bone.getWorldPosition(aimA); end.getWorldPosition(aimB);
+    aimB.sub(aimA).normalize();
+    aimT.copy(f.aim[name]).applyQuaternion(aimR);
+    aimQ.setFromUnitVectors(aimB, aimT);
+    bone.getWorldQuaternion(aimW).premultiply(aimQ);
+    bone.parent.getWorldQuaternion(aimP).invert();
+    bone.quaternion.copy(aimP.multiply(aimW));
+    bone.updateMatrixWorld(true);
   }
 }
 // keep him standing on the floor: the lower of his feet rests where it rests in the idle pose
@@ -504,9 +548,10 @@ function dressFigure(f, body, kit, base) {
   // where his feet rest when he simply stands; every stance keeps the lower foot there
   puppet.updateMatrixWorld(true);
   f.footRest = Math.min(...f.feet.map((bn) => bn.getWorldPosition(new THREE.Vector3()).y));
-  f.stance ||= 'ready';
+  f.stance ||= 'relaxed';
   applyStance(f, 1);
   plant(f);
+  aimArms(f);
   if (f.pairs) retarget(f);
 
   // his frame, then the kit cut to fit it and bound to his skeleton
@@ -644,6 +689,7 @@ function animateFigure(f, dt, snap) {
   f.mixer.update(dt);
   applyStance(f, dt, snap);
   plant(f);
+  aimArms(f);
   if (f.pairs) retarget(f);
 }
 
@@ -750,17 +796,18 @@ const SLOT_NAMES = { PG: 'Point guard', SG: 'Shooting guard', SF: 'Small forward
 
 // ---------- camera: three framings, plus whatever the user drags to ----------
 const ease = (t) => t * t * (3 - 2 * t);
-// where the scroll walk pauses: progress -> view
-const WALK = [[0, 'court'], [0.12, 'court'], [0.38, 'under'], [0.54, 'under'], [0.8, 'over'], [1, 'over']];
-const CENTRE = { court: 0.05, under: 0.46, over: 0.9 };
+// three chapters down the page, and where each sits on the scroll; the page snaps to them
+const CHAPTERS = ['court', 'under', 'over'];
+const CENTRE = { court: 0, under: 0.5, over: 1 };
 const VIEWS = {
-  court: { target: [0, 0, 1.2], radius: 34, polar: 0.84, az: 0 },
+  court: { target: [-1.6, 3.9, -1.6], radius: 42, polar: 0.86, az: 0 },
+  courtTall: { target: [-2, 2.6, 0], radius: 40, polar: 0.92, az: Math.PI / 2, tall: true }, // the court sits low and right, under the headline
   under: { target: [HOOP_X - 4.6, 0.9, 0.3], radius: 13.5, polar: 1.12, az: -0.62 },
   over: { target: [-(HOOP_X - 4.6), 0.9, -0.3], radius: 13.5, polar: 1.12, az: Math.PI - 0.62 },
 };
 
 // teams: { under: [player], over: [player] }, each player { id, name, fpg, gap, slot, jersey, height, weight }
-export function mountStage({ canvas, labels, section, teams, onSelect, onView, avoid, faces }) {
+export function mountStage({ canvas, labels, section, teams, onSelect, onView, onProgress, onCine, avoid, faces }) {
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const small = innerWidth < 760;
   let renderer;
@@ -860,7 +907,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
       labels.append(el);
       const pose = POSES_BY_SLOT[pl.slot] || 'set';
       // the point guard starts with the ball
-      const f = { pl, side, root: holder, ring, el, face: holder.rotation.y, pose, stance: pl.slot === 'PG' ? 'dribble' : 'ready', metres, head: new THREE.Vector3(x, metres + 0.45, z) };
+      const f = { pl, side, root: holder, ring, el, face: holder.rotation.y, pose, stance: pl.slot === 'PG' ? 'dribble' : 'relaxed', metres, head: new THREE.Vector3(x, metres + 0.45, z) };
       holder.traverse((o) => { o.userData.figure = f; });
       el.onclick = () => select(f);
       el.onmouseenter = () => { hovered = f; };
@@ -913,7 +960,13 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
   // `cam` is where the walk (or a button) puts the camera; `user` is the turn you add by dragging.
   const cam = { tx: 0, ty: 0, tz: 0, radius: 27, polar: 0.92, az: 0 };
   const user = { az: 0, polar: 0 };
-  const params = (name) => { const v = VIEWS[name]; return { tx: v.target[0], ty: v.target[1], tz: v.target[2], radius: v.radius * (camera.aspect < 1 ? 1.45 : 1), polar: v.polar, az: v.az }; };
+  // the pass camera's state (see "the pass, on camera" below)
+  const cine = { w: 0, on: false, ball: null, from: null, hold: 0, pos: new THREE.Vector3(), look: new THREE.Vector3(), fresh: true };
+  const params = (name) => {
+    // on a tall screen the whole court is seen down its length (underpriced end nearest), so it fills the height
+    const v = camera.aspect < 1 && VIEWS[name + 'Tall'] ? VIEWS[name + 'Tall'] : VIEWS[name];
+    return { tx: v.target[0], ty: v.target[1], tz: v.target[2], radius: v.radius * (camera.aspect < 1 && !v.tall ? 1.45 : 1), polar: v.polar, az: v.az };
+  };
   let mode = 'court';
   const setMode = (name) => {
     if (name === mode) return;
@@ -925,17 +978,25 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
   };
   const walk = { p: 0, target: 0 };
   const walkCam = (p) => {
-    let i = 0;
-    while (i < WALK.length - 2 && p > WALK[i + 1][0]) i++;
-    const [p0, a] = WALK[i], [p1, b] = WALK[i + 1];
-    const t = ease(Math.min(1, Math.max(0, (p - p0) / Math.max(1e-6, p1 - p0))));
-    const A = params(a), B = params(b);
+    const i = p < 0.5 ? 0 : 1;
+    const t = ease(Math.min(1, Math.max(0, (p - i * 0.5) / 0.5)));
+    const A = params(CHAPTERS[i]), B = params(CHAPTERS[i + 1]);
     for (const k of Object.keys(A)) cam[k] = A[k] + (B[k] - A[k]) * t;
-    setMode(p < 0.25 ? 'court' : p < 0.67 ? 'under' : 'over');
+    // a crane move between chapters: up and back through the middle, settling as it arrives
+    const arc = Math.sin(Math.PI * t);
+    cam.radius += arc * 7;
+    cam.polar -= arc * 0.22;
+    setMode(p < 0.25 ? 'court' : p < 0.75 ? 'under' : 'over');
+    onProgress?.(p);
   };
   let trigger = null;
   if (!still) {
-    trigger = ScrollTrigger.create({ trigger: section, start: 'top top', end: 'bottom bottom', onUpdate: (self) => { walk.target = self.progress; } });
+    trigger = ScrollTrigger.create({
+      trigger: section, start: 'top top', end: 'bottom bottom',
+      onUpdate: (self) => { walk.target = self.progress; if (Math.abs(self.getVelocity()) > 40) releaseCine(); },
+      // never rest between chapters: a scroll that stops part way glides on to the nearest one
+      snap: { snapTo: [0, 0.5, 1], duration: { min: 0.35, max: 0.8 }, delay: 0.06, ease: 'power2.inOut' },
+    });
   }
   const apply = (name, instant) => {
     if (trigger && !instant) {
@@ -951,7 +1012,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
 
   // ---------- the ball: one per side, starting with the point guard ----------
   // Click a teammate and whoever has the ball turns to him and throws a chest pass; he turns to
-  // the passer, catches it, and starts dribbling. Everyone else on that side watches the ball.
+  // the passer, catches it, and takes his stance with it: guards dribble, the rest square up to shoot.
   const balls = {};
   const ballGeo = new THREE.SphereGeometry(0.15, 20, 14); // a little over life size, to read at this distance
   function setupBalls() {
@@ -959,7 +1020,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
       const team = figures.filter((f) => f.side === side && f.mixer);
       if (!team.length) continue;
       const holder = team.find((f) => f.pl.slot === 'PG') || team[0];
-      for (const f of team) f.stance = f === holder ? 'dribble' : 'ready';
+      for (const f of team) f.stance = f === holder ? WITH_BALL[f.pl.slot] || 'dribble' : 'relaxed';
       const mesh = new THREE.Mesh(ballGeo, base.ball);
       mesh.castShadow = true;
       scene.add(mesh);
@@ -976,12 +1037,13 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     // a beat to turn and load up, then the ball flies, quicker over short passes
     const dist = from.root.position.distanceTo(f.root.position);
     b.flight = { from, to: f, wait: 0.32, t: 0, dur: 0.38 + dist * 0.035, start: null };
+    startCine(b, from, f);
   }
   function land(b, from, to) {
     b.holder = to; b.flight = null;
-    to.stance = 'dribble'; to.look = null;
+    to.stance = WITH_BALL[to.pl.slot] || 'dribble'; to.look = null;
     from.look = null; from.recover = still ? 0 : 0.35;
-    if (still) from.stance = 'ready';
+    if (still) from.stance = 'relaxed';
   }
   const hand = new THREE.Vector3(), hand2 = new THREE.Vector3();
   const between = (f, out) => {
@@ -1005,30 +1067,88 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
       }
       const h = b.holder;
       if (!h?.hands?.[1]) continue;
+      if (h.stance !== 'dribble') {
+        // held: cradled between his hands, a touch above them at the set point
+        between(h, b.mesh.position);
+        b.mesh.position.y += h.stance === 'shoot' ? 0.1 : 0.03;
+        continue;
+      }
       // dribbling with the right hand, out in front of him
       h.hands[1].getWorldPosition(hand);
       const bounce = Math.abs(Math.sin(t * 5.2));
       b.mesh.position.set(hand.x, 0.15 + bounce * Math.max(0, hand.y - 0.27), hand.z);
     }
   }
-  // which way each player turns: toward his pass while one is on, the ball handler toward the
-  // hoop (or toward you once you have picked him), everyone else toward the ball
+  // which way each player turns: toward his pass while one is on, toward you once you have picked
+  // him, and otherwise out toward where his side is watched from
   const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  // everyone faces out toward where his side is watched from, so you see faces, not backs
+  const facing = {};
+  const setFacing = () => {
+    for (const side of ['under', 'over']) {
+      const v = params(side);
+      facing[side] = { x: v.tx + v.radius * Math.sin(v.polar) * Math.sin(v.az), z: v.tz + v.radius * Math.sin(v.polar) * Math.cos(v.az) };
+    }
+  };
   const yawTo = (f, x, z) => Math.atan2(x - f.root.position.x, z - f.root.position.z);
   function turnPlayers(dt) {
     for (const f of figures) {
       if (!f.mixer) continue;
-      if (f.recover > 0 && (f.recover -= dt) <= 0) f.stance = 'ready';
-      const b = balls[f.side];
+      if (f.recover > 0 && (f.recover -= dt) <= 0) f.stance = 'relaxed';
       const hoopX = (f.side === 'under' ? 1 : -1) * HOOP_X;
       let target;
       if (f.look) target = yawTo(f, f.look.root.position.x, f.look.root.position.z);
       else if (f === selected) target = yawTo(f, camera.position.x, camera.position.z);
-      else if (!b || b.holder === f) target = yawTo(f, hoopX, 0);
-      else target = yawTo(f, b.holder.root.position.x, b.holder.root.position.z);
+      else { const at = facing[f.side] || { x: hoopX, z: 0 }; target = yawTo(f, at.x, at.z); }
       const k = still ? 1 : 1 - Math.exp(-dt * 7);
       f.root.rotation.y += wrapAngle(target - f.root.rotation.y) * k;
     }
+  }
+
+  // ---------- the pass, on camera ----------
+  // When the ball goes, the camera leaves its chapter and swings round side-on to the pass, follows
+  // the ball, slows time as it arrives, holds on the catch, then eases home. Scrolling or dragging
+  // hands the camera straight back.
+  let timeScale = 1;
+  function startCine(b, from) {
+    if (still) return;
+    Object.assign(cine, { on: true, ball: b, from, hold: 0, fresh: true });
+    onCine?.(true);
+    gsap.to(cine, { w: 1, duration: 0.8, ease: 'power2.inOut', overwrite: true });
+  }
+  function releaseCine() {
+    if (!cine.on) return;
+    cine.on = false;
+    onCine?.(false);
+    gsap.to(cine, { w: 0, duration: 1.1, ease: 'power2.inOut', overwrite: true });
+  }
+  const cv = { a: new THREE.Vector3(), d: new THREE.Vector3(), n: new THREE.Vector3(), want: new THREE.Vector3(), wantPos: new THREE.Vector3(), basePos: new THREE.Vector3(), baseLook: new THREE.Vector3() };
+  function cineCamera(dt) {
+    const b = cine.ball;
+    if (!b || cine.w < 0.001) return;
+    const fl = b.flight, to = fl ? fl.to : b.holder, from = fl ? fl.from : cine.from;
+    if (!to || !from) return;
+    // the line of the pass, flat on the floor, and the side of it the camera already stands on
+    cv.d.subVectors(to.root.position, from.root.position).setY(0).normalize();
+    cv.n.set(-cv.d.z, 0, cv.d.x);
+    cv.a.addVectors(to.root.position, from.root.position).multiplyScalar(0.5);
+    if (cv.n.dot(cv.basePos.clone().sub(cv.a)) < 0) cv.n.negate();
+    const wide = camera.aspect < 1 ? 1.35 : 1;
+    if (fl) {
+      cv.want.copy(fl.wait > 0 ? from.root.position : b.mesh.position).setY(Math.max(1, b.mesh.position.y));
+      cv.wantPos.copy(cv.want).addScaledVector(cv.n, 7.5 * wide).addScaledVector(cv.d, -1.6).setY(cv.want.y + 2.2);
+    } else {
+      cv.want.copy(to.root.position).setY(to.metres * 0.62);
+      cv.wantPos.copy(cv.want).addScaledVector(cv.n, 4.8 * wide).addScaledVector(cv.d, 1.2).setY(cv.want.y + 0.9);
+      if (cine.on && (cine.hold += dt) > 1.7) releaseCine();
+    }
+    if (cine.fresh) { cine.look.copy(cv.baseLook); cine.pos.copy(cv.basePos); cine.fresh = false; }
+    const k = 1 - Math.exp(-dt * 5);
+    cine.look.lerp(cv.want, k);
+    cine.pos.lerp(cv.wantPos, k);
+    const w = ease(cine.w);
+    camera.position.lerpVectors(cv.basePos, cine.pos, w);
+    camera.lookAt(cv.a.lerpVectors(cv.baseLook, cine.look, w));
   }
 
   // ---------- selection ----------
@@ -1058,7 +1178,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     return hit?.object.userData.figure || null;
   };
   let drag = null;
-  const down = (e) => { drag = { x: e.clientX, y: e.clientY, az: user.az, polar: user.polar, moved: false, touch: e.pointerType === 'touch' }; };
+  const down = (e) => { releaseCine(); drag = { x: e.clientX, y: e.clientY, az: user.az, polar: user.polar, moved: false, touch: e.pointerType === 'touch' }; };
   const move = (e) => {
     if (drag) {
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
@@ -1095,6 +1215,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     camera.aspect = w / h;
     camera.fov = w < 760 ? 48 : 36;
     camera.updateProjectionMatrix();
+    setFacing();
   };
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);
@@ -1107,12 +1228,15 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
   const frame = (now) => {
     raf = 0;
     if (!visible || document.hidden) return;
+    const dt = Math.min(0.05, (now - (frame.last || now)) / 1000); frame.last = now;
     const drift = still || drag || selected ? 0 : Math.sin((now - t0) / 5200) * 0.06;
-    if (trigger) { walk.p += (walk.target - walk.p) * 0.12; walkCam(walk.p); }
+    if (trigger) { walk.p += (walk.target - walk.p) * (1 - Math.exp(-dt * 9)); walkCam(walk.p); }
     const az = cam.az + user.az + drift;
     const polar = Math.max(0.5, Math.min(1.35, cam.polar + user.polar));
     camera.position.set(cam.tx + cam.radius * Math.sin(polar) * Math.sin(az), cam.ty + cam.radius * Math.cos(polar), cam.tz + cam.radius * Math.sin(polar) * Math.cos(az));
     camera.lookAt(cam.tx, cam.ty, cam.tz);
+    cv.basePos.copy(camera.position); cv.baseLook.set(cam.tx, cam.ty, cam.tz);
+    cineCamera(dt);
     // name plates: the side in view, plus whoever is hovered or selected
     const w = canvas.clientWidth, h = canvas.clientHeight;
     const placed = [];
@@ -1133,10 +1257,13 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
       f.el.classList.toggle('on', f === selected);
       f.el.tabIndex = on ? 0 : -1;
     }
-    const dt = Math.min(0.05, (now - (frame.last || now)) / 1000); frame.last = now;
-    turnPlayers(dt);
-    for (const f of figures) animateFigure(f, still ? 0 : dt, still);
-    moveBalls(still ? 0 : dt, (now - t0) / 1000);
+    // time slows as a pass arrives, and comes back up after the catch
+    const arriving = Object.values(balls).some((b) => b.flight && b.flight.wait <= 0 && b.flight.t > 0.55);
+    timeScale += ((arriving && cine.on ? 0.4 : 1) - timeScale) * (1 - Math.exp(-dt * 10));
+    const sdt = dt * timeScale;
+    turnPlayers(sdt);
+    for (const f of figures) animateFigure(f, still ? 0 : sdt, still);
+    moveBalls(still ? 0 : sdt, (now - t0) / 1000);
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);

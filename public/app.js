@@ -283,18 +283,35 @@ function renderHome(app) {
         <div><b class="num">${me.rank === 1 ? 'Lead' : `−${(leader.points - me.points).toLocaleString('en-US')}`}</b><span>${me.rank === 1 ? `by ${(me.points - w.teams[1].points).toLocaleString('en-US')}` : `to ${esc(leader.name)}`}</span></div></div>`;
 
   app.innerHTML = `
-    <section class="stage court" id="stage">
+    <section class="stage court" id="stage" data-ch="court">
       <div class="stage-pin">
         <canvas id="court" aria-label="Engraved basketball court with the most underpriced players on the right half and the most overpriced on the left"></canvas>
         <div class="col-labels" id="col-labels"></div>
         <div class="court-ui">
-          <h1>Where the market is <i>wrong</i></h1>
-          <div class="court-seg" role="group" aria-label="Show">
-            <button type="button" data-view="over">Overpriced</button><button type="button" data-view="court" class="on">Both sides</button><button type="button" data-view="under">Underpriced</button>
+          <div class="chapter" data-ch="court">
+            <p class="kicker">Today's court</p>
+            <h1>Where the market is <i>wrong</i></h1>
+            <p class="lede">The ten players the market misprices most: five Pivot rates above their recent box scores, five below. Scroll to meet each side.</p>
           </div>
-          <p class="court-hint">${innerWidth < 760 ? 'Scroll to walk the court. Swipe sideways to turn it, tap a player.' : 'Scroll to walk the court. Drag to turn it, click a player.'}</p>
+          <div class="chapter" data-ch="under">
+            <p class="kicker"><span>01</span>Buy low</p>
+            <h2>Underpriced</h2>
+            <p class="lede">Pivot projects these five above what their recent games say. Click one to pass him the ball.</p>
+          </div>
+          <div class="chapter" data-ch="over">
+            <p class="kicker"><span>02</span>Sell high</p>
+            <h2>Overpriced</h2>
+            <p class="lede">Producing above what Pivot expects to last. Click one to pass him the ball.</p>
+          </div>
           <p class="court-faces" id="court-faces" hidden></p>
         </div>
+        <nav class="court-rail" aria-label="Court chapters">
+          <i class="rail-fill" aria-hidden="true"></i>
+          <button type="button" data-view="court" class="on">Court</button>
+          <button type="button" data-view="under">Buy low</button>
+          <button type="button" data-view="over">Sell high</button>
+        </nav>
+        <div class="scroll-cue" aria-hidden="true"><span>Scroll</span><i></i></div>
         <aside class="jumbotron" id="court-panel" aria-live="polite">
           <div id="panel-day">
             <p class="today-date">${esc(today)}${me ? ` · ${esc(me.name)}` : ''}</p>
@@ -325,6 +342,7 @@ function renderHome(app) {
   unmountStage = null;
   const panelDay = $('#panel-day'), panelPlayer = $('#panel-player');
   const showPlayer = (pl) => {
+    stage.classList.toggle('has-player', Boolean(pl));
     if (!pl) { panelPlayer.hidden = true; panelDay.hidden = false; return; }
     const p = byId.get(pl.id);
     const under = pl.side === 'under';
@@ -353,9 +371,11 @@ function renderHome(app) {
     const ctl = mountStage({
       faces,
       canvas: $('#court'), labels: $('#col-labels'), section: stage, teams,
-      avoid: () => [stage.querySelector('.court-ui'), $('#court-panel')].filter(Boolean).map((el) => el.getBoundingClientRect()),
+      avoid: () => [stage.querySelector('.chapter[data-ch="' + stage.dataset.ch + '"]'), stage.querySelector('.court-rail'), stage.classList.contains('has-player') || stage.dataset.ch === 'court' ? $('#court-panel') : null].filter(Boolean).map((el) => el.getBoundingClientRect()),
       onSelect: showPlayer,
-      onView: (name) => seg.forEach((b) => b.classList.toggle('on', b.dataset.view === name)),
+      onView: (name) => { stage.dataset.ch = name; seg.forEach((b) => b.classList.toggle('on', b.dataset.view === name)); },
+      onProgress: (p) => stage.style.setProperty('--p', p.toFixed(4)),
+      onCine: (on) => stage.classList.toggle('cine', on),
     });
     unmountStage = () => { clearTimeout(facesTimer); ctl.destroy(); };
     seg.forEach((b) => { b.onclick = () => ctl.view(b.dataset.view); });

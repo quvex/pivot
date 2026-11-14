@@ -927,3 +927,78 @@ body.demo[data-page="home"] .stage.court .jumbotron { bottom: calc(clamp(24px, 6
 .stage.court .stage-pin { position: sticky; top: 0; height: 100dvh; }
 @media (max-width: 760px) { .stage.court { height: 300vh; } .stage.court .stage-pin { min-height: 560px; } }
 @media (prefers-reduced-motion: reduce) { .stage.court { height: 100dvh; } .stage.court .stage-pin { position: relative; } }
+
+/* ---------- the court in three chapters ----------
+   The court is pinned while the page scrolls through three stops (the whole court, the
+   underpriced side, the overpriced side), and the scroll snaps to them. Each stop has its own
+   copy, crossfaded in place; a rail on the right shows where you are and jumps between stops. */
+.stage.court { height: 300vh; }
+.court-ui { display: block; top: clamp(84px, 13vh, 120px); width: min(440px, calc(100% - 32px)); height: 230px; }
+.chapter { position: absolute; inset: 0 auto auto 0; width: 100%; opacity: 0; transform: translateY(22px); filter: blur(4px);
+  transition: opacity .45s ease, transform .7s cubic-bezier(.16, .84, .3, 1), filter .45s ease; pointer-events: none; }
+.stage[data-ch="court"] .chapter[data-ch="court"], .stage[data-ch="under"] .chapter[data-ch="under"], .stage[data-ch="over"] .chapter[data-ch="over"] {
+  opacity: 1; transform: none; filter: none; pointer-events: auto; transition-delay: .12s; }
+.kicker { display: flex; gap: 12px; align-items: baseline; margin: 0 0 14px; font: 500 11.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.kicker span { color: var(--accent); }
+.chapter h1, .chapter h2 { margin: 0; font: 400 clamp(40px, 4.8vw, 68px)/.94 var(--display); letter-spacing: -.025em; }
+.chapter h1 i { font-style: italic; }
+.chapter[data-ch="under"] h2 { color: var(--up); }
+.chapter[data-ch="over"] h2 { color: var(--down); }
+.lede { margin: 16px 0 0; max-width: 36ch; font-size: 15px; line-height: 1.5; color: var(--text); opacity: .78; }
+.court-ui .court-faces { position: absolute; top: 236px; left: 0; }
+
+.court-rail { position: absolute; z-index: 3; right: clamp(16px, 3vw, 44px); top: 50%; transform: translateY(-50%); display: grid; gap: 26px; justify-items: end; }
+.court-rail::before, .rail-fill { content: ''; position: absolute; right: 5px; top: 7px; width: 1px; }
+.court-rail::before { bottom: 7px; background: var(--line); }
+.rail-fill { height: calc((100% - 14px) * var(--p, 0)); background: var(--accent); transition: height .1s linear; }
+.court-rail button { position: relative; display: flex; align-items: center; gap: 12px; padding: 0; background: none; border: 0; cursor: pointer;
+  font: 500 12px var(--sans); letter-spacing: .02em; color: var(--muted); transition: color .3s; }
+.court-rail button::after { content: ''; width: 11px; height: 11px; border-radius: 50%; border: 1px solid var(--text); background: var(--bg);
+  transition: background .3s, border-color .3s, transform .3s; }
+.court-rail button:hover { color: var(--text); }
+.court-rail button.on { color: var(--text); }
+.court-rail button.on::after { background: var(--accent); border-color: var(--accent); transform: scale(1.25); }
+.court-rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+
+.scroll-cue { position: absolute; left: 50%; bottom: 22px; z-index: 2; transform: translateX(-50%); display: grid; justify-items: center; gap: 8px;
+  font: 500 10.5px var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--muted); pointer-events: none; transition: opacity .4s; }
+.scroll-cue i { width: 1px; height: 38px; background: var(--text); transform-origin: top; animation: cue 2s cubic-bezier(.6, 0, .3, 1) infinite; }
+@keyframes cue { 0% { transform: scaleY(0); opacity: 1; } 55% { transform: scaleY(1); opacity: 1; } 100% { transform: scaleY(1); opacity: 0; } }
+.stage:not([data-ch="court"]) .scroll-cue { opacity: 0; }
+
+/* the day's card belongs to the first stop; a picked player brings the card back anywhere */
+.stage.court .jumbotron { transition: opacity .4s ease, transform .5s cubic-bezier(.16, .84, .3, 1); }
+.stage.court:not([data-ch="court"]):not(.has-player) .jumbotron { opacity: 0; transform: translateY(14px); pointer-events: none; }
+
+@media (max-width: 760px) {
+  .stage.court { height: 280vh; }
+  .court-ui { top: 76px; height: 190px; }
+  .chapter h1, .chapter h2 { font-size: 36px; }
+  .lede { font-size: 14px; margin-top: 10px; }
+  .court-ui .court-faces { top: 196px; }
+  .court-rail { right: 10px; gap: 20px; }
+  .court-rail button { font-size: 0; gap: 0; }
+  .scroll-cue { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage.court { height: 100dvh; }
+  .chapter, .court-rail button::after, .stage.court .jumbotron { transition: none; filter: none; }
+  .scroll-cue i { animation: none; }
+}
+.chapter[data-ch="court"] { width: min(600px, calc(100vw - 32px)); }
+/* a soft wash of paper behind the copy and the rail, so the drawing never runs through the words */
+.court-ui::before { content: ''; position: absolute; z-index: -1; inset: -60px -90px -40px -80px; pointer-events: none;
+  background: radial-gradient(closest-side, var(--bg) 55%, transparent); opacity: .92; }
+.court-rail button { padding: 3px 0 3px 8px; border-radius: 6px; background: linear-gradient(90deg, transparent, var(--bg) 30%); }
+@media (max-width: 760px) { .court-rail button { background: none; padding: 0; } }
+/* the pass, on camera: the page steps back and the frame letterboxes while the shot plays */
+.stage.court .stage-pin::before, .stage.court .stage-pin::after { content: ''; position: absolute; left: 0; right: 0; z-index: 4; height: 9vh;
+  background: var(--text); pointer-events: none; transform: scaleY(0); transition: transform .6s cubic-bezier(.16, .84, .3, 1); }
+.stage.court .stage-pin::before { top: 0; transform-origin: top; }
+.stage.court .stage-pin::after { bottom: 0; transform-origin: bottom; }
+.stage.court.cine .stage-pin::before, .stage.court.cine .stage-pin::after { transform: scaleY(1); }
+.stage.court .court-ui, .stage.court .court-rail, .stage.court .col-labels { transition: opacity .45s ease; }
+.stage.court.cine .court-ui, .stage.court.cine .court-rail, .stage.court.cine .col-labels { opacity: 0; pointer-events: none; }
+.stage.court.cine .jumbotron { z-index: 5; }
+@media (prefers-reduced-motion: reduce) { .stage.court .stage-pin::before, .stage.court .stage-pin::after { display: none; } }
+.stage.court .stage-pin::before { height: calc(9vh + 58px); } /* the top bar runs up under the floating nav */
