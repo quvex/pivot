@@ -5,8 +5,8 @@ rankings, schedules, injuries and news from ten sources, projects every player f
 season, and turns that into the day's decisions: who to start, who to add, and which trades to make,
 each with the reasoning behind it.
 
-The projection model is tested the honest way: it is tuned on past NBA seasons and scored on a season
-it never saw.
+The projection model is tested the honest way: on three past NBA seasons, each scored by a version
+tuned only on earlier seasons, with error ranges, an ablation of every piece, and a live track record.
 
 <!-- Add a screenshot or short GIF of the front page and the trade builder here: docs/screenshot.png -->
 
@@ -27,24 +27,61 @@ it never saw.
 model for every relevant player's rest-of-season fantasy points per game, using only what was known
 that day, then compares with what the player actually averaged afterwards.
 
-Tuned on 2021-22, 2023-24 and 2024-25 (11,627 projections). Scored on **2025-26**, held out
-entirely (4,070 projections):
+**Rolling-origin evaluation.** Each test season is scored by a model tuned only on earlier seasons,
+so nothing from the future leaks in. Figures are the mean absolute error in FP/G (lower is better).
+The ranges are 95% intervals from a bootstrap that resamples whole players, because one player's
+projections across a season are not independent.
 
-| Method | Average miss (MAE, FP/G) | RMSE | Next two weeks (MAE) |
+| Test season | Tuned on | Pivot | Season average | Previous model | Gain over season average |
+|---|---|---|---|---|---|
+| 2023-24 | 2021-22 | **4.06** (3.76–4.37) | 4.68 | 4.12 | 13% |
+| 2024-25 | 2021-22, 2023-24 | **3.79** (3.55–4.04) | 4.34 | 3.89 | 13% |
+| 2025-26 | 2021-22, 2023-24, 2024-25 | **3.87** (3.64–4.10) | 4.37 | 3.99 | 11% |
+
+All three seasons together (11,791 projections of 1,063 player-seasons):
+
+| Method | MAE | 95% range | Worse than Pivot by |
 |---|---|---|---|
-| **Pivot model** | **3.87** | **4.87** | **5.35** |
-| Previous version of this model | 3.99 | 5.03 | 5.44 |
-| Season average to date | 4.37 | 5.63 | 5.54 |
-| Preseason projection | 5.48 | 6.95 | 6.90 |
-| Last 15 days | 5.59 | 7.24 | 6.42 |
+| **Pivot model** | **3.90** | 3.76–4.06 | |
+| Previous version of this model | 4.00 | 3.84–4.16 | 0.10 (0.06–0.14) |
+| Season average to date | 4.46 | 4.28–4.65 | 0.56 (0.44–0.68) |
+| Preseason projection | 5.26 | 5.02–5.52 | 1.36 (1.20–1.56) |
+| Last 15 days | 5.74 | 5.61–5.88 | 1.84 (1.70–1.98) |
 
-That is an 11% smaller miss than the season average, the number most fantasy players go by. The
-error on the tuning seasons (3.92) is close to the held-out error, so the model is not overfitting.
-2022-23 is left out of tuning because ESPN's stored "preseason" projections for that season were
-revised mid-season, which would leak the answer.
+The gap to the season average, the number most fantasy players go by, is consistent across all
+three seasons. The gain over the previous version of this model is real but small: 0.10 FP/G, and the
+interval stays above zero.
+
+2022-23 is not used, for tuning or testing, because ESPN's stored "preseason" projections for that
+season were revised mid-season, which would leak the answer.
+
+### Ablation: what each piece is worth
+
+The full model with one piece taken away, pooled over the three test seasons. A positive change means
+the model gets worse without it.
+
+| Piece removed | MAE | Change (95% range) | Verdict |
+|---|---|---|---|
+| Preseason prior | 4.25 | +0.35 (0.25 to 0.44) | The biggest contributor |
+| Minutes × efficiency split (one fantasy-points series instead, re-tuned) | 3.97 | +0.07 (0.04 to 0.11) | Helps |
+| Recency weighting | 3.97 | +0.07 (0.02 to 0.12) | Helps |
+| Top-end trim for stars | 3.91 | +0.01 (0.00 to 0.01) | Marginal |
+| Shooting-luck correction | 3.91 | +0.00 (−0.02 to 0.03) | No measurable effect |
+
+The shooting-luck correction is kept because it is cheap and harmless, but on this evidence it does
+not earn its place. The live app also blends in FantasyPros' rest-of-season projection; there is no
+history of that feed to replay, so it is not part of these numbers.
+
+### Live track record
+
+Backtests can be tuned, however carefully. So every daily update also saves its projections, and once
+a snapshot is a week old each projection is scored against what the player has averaged since, next
+to his season average on the day the projection was made. Results appear under Settings → Projection
+accuracy as the season goes on. Logging started on 14 November 2026.
 
 Known weak spot: the model runs about 1.5 to 2.5 FP/G high for the very best players (predicted 51.4,
-actual 49.1 in the top band), mostly because stars get rested and shut down late in seasons.
+actual 49.1 in the top band of 2025-26), mostly because stars get rested and shut down late in
+seasons. The top-end trim corrects only a little of this.
 
 ### How the projection works
 
@@ -136,7 +173,8 @@ server.mjs              web server and API
 lib/sources.mjs         fetchers and parsers for every source
 lib/history.mjs         season-long game logs from ESPN
 lib/estimator.mjs       the per-game estimate shared by the live model and the backtest
-lib/backtest.mjs        tuning and held-out evaluation
+lib/backtest.mjs        tuning, rolling-origin evaluation, bootstrap intervals, ablation
+lib/livescore.mjs       scores saved daily projections against what happened since
 lib/model.mjs           projections, consensus, market value, signals, waivers, weekly plan
 lib/trade.mjs           trade evaluation and mock offers
 lib/news.mjs            news classification, league outcomes, LLM briefing

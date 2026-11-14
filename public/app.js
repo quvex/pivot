@@ -781,7 +781,7 @@ function renderSettings(app) {
           <div style="margin-top:12px;display:flex;gap:8px"><button class="btn primary">Save scoring</button><button type="button" class="btn" id="reset-scoring">Reset to ${S.league ? 'league' : 'ESPN default'}</button></div>
         </form></div></div>
 
-${S.meta?.backtest ? accuracyPanel(S.meta.backtest) : ''}
+${S.meta?.backtest ? accuracyPanel(S.meta.backtest, S.meta.live) : ''}
         <div class="panel"><header><h2>Daily update</h2><p>${S.ready ? `Last run ${esc(new Date(S.meta.refreshedAt).toLocaleString())}` : 'Never run'}</p></header>
           <div class="body"><form class="form" id="f-hour"><div class="field"><label for="refreshHour">Update once a day after this hour (0–23)</label>
             <div style="display:flex;gap:8px"><input id="refreshHour" type="number" min="0" max="23" value="${esc(s.refreshHour)}" style="width:90px"><button class="btn">Save</button></div>
@@ -822,14 +822,34 @@ ${S.meta?.backtest ? accuracyPanel(S.meta.backtest) : ''}
   };
 }
 
-// How the projection model did on a past season it was not tuned on.
-function accuracyPanel(bt) {
-  const max = Math.max(...bt.results.map((r) => r.mae));
-  return `<div class="panel"><header><h2>Projection accuracy</h2><p>Tested on ${esc(bt.testSeason)}</p></header><div class="body">
-    <p class="muted" style="margin-bottom:12px">The model was tuned on ${esc(bt.trainSeasons.join(', '))} and then replayed through ${esc(bt.testSeason)}, a season it had not seen: ${bt.testSamples.toLocaleString()} projections made at ${bt.checkpoints.length} points in the season, each compared with what the player went on to average. Lower is better.</p>
-    <div class="impact acc">${bt.results.map((r) => `<div class="irow" data-tip="${esc(`${r.label}: off by ${r.mae} FP/G on average for the rest of the season, ${r.next14} over the next two weeks`)}"><span class="ilab">${r.key === 'model' ? `<b>${esc(r.label)}</b>` : esc(r.label)}</span>
-      <span class="itrack flat"><i class="${r.key === 'model' ? 'pos' : 'base'}" style="width:${(r.mae / max * 100).toFixed(1)}%"></i></span><span class="num ival">${r.mae.toFixed(2)}</span></div>`).join('')}</div>
-    <p class="chart-note">Average miss in rest-of-season FP/G. Re-run with <code>npm run backtest</code>.</p></div></div>`;
+// How the projection model did on past seasons it was not tuned on, and how it is doing live.
+function accuracyPanel(bt, live) {
+  const ci = (x) => `<span class="ci">${x.lo.toFixed(2)}–${x.hi.toFixed(2)}</span>`;
+  const signedD = (d) => `${d.diff >= 0 ? '+' : '−'}${Math.abs(d.diff).toFixed(2)}`;
+  const folds = bt.folds || [];
+  const pooled = bt.pooled;
+  const max = pooled ? Math.max(...bt.baselines.map((k) => pooled.mae[k].hi)) : 1;
+  const liveBlock = !live ? '' : live.overall
+    ? `<p>Projections saved by each daily update are compared with what the player has averaged since. Across ${live.scored.length} scored day${live.scored.length === 1 ? '' : 's'} (${live.overall.n.toLocaleString('en-US')} player projections), Pivot has missed by <b class="num">${live.overall.model.toFixed(2)}</b> FP/G against <b class="num">${live.overall.seasonAvg.toFixed(2)}</b> for the season average on the same days.</p>`
+    : `<p>Each daily update now saves its projections. ${live.snapshots ? `${live.snapshots} saved so far; the first ${live.nextScoredOn != null ? `can be scored in ${Math.max(1, live.nextScoredOn)} day${live.nextScoredOn === 1 ? '' : 's'}` : 'is waiting for games'}` : 'None saved yet'}, once the players have had a week of games.</p>`;
+  return `<div class="panel"><header><h2>Projection accuracy</h2><p>Tested on seasons it never saw</p></header><div class="body acc-body">
+    <p class="muted">Each test season is scored by a version of the model tuned only on earlier seasons. Figures are the average miss in rest-of-season FP/G; small numbers are 95% ranges from resampling players. Lower is better.</p>
+    ${folds.length ? `<div class="table-wrap"><table class="acc">
+      <thead><tr><th class="l">Test season</th><th>Pivot</th><th>Season avg</th><th>Previous</th><th title="How much smaller Pivot's miss is than the season average's">Gain</th></tr></thead>
+      <tbody>${folds.map((f) => `<tr style="cursor:default"><td class="l">${esc(f.test)} <span class="ci">tuned on ${esc(f.train.join(', '))}</span></td>
+        <td class="strong">${f.mae.model.mae.toFixed(2)} ${ci(f.mae.model)}</td><td>${f.mae.seasonAvg.mae.toFixed(2)}</td><td>${f.mae.old.mae.toFixed(2)}</td>
+        <td class="up">${Math.round((1 - f.mae.model.mae / f.mae.seasonAvg.mae) * 100)}%</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${pooled ? `<h3 class="acc-h">All test seasons together</h3>
+      <div class="impact acc">${bt.baselines.map((k) => { const m = pooled.mae[k]; return `<div class="irow" data-tip="${esc(`${bt.labels[k]}: ${m.mae.toFixed(2)} FP/G, 95% range ${m.lo.toFixed(2)} to ${m.hi.toFixed(2)}`)}"><span class="ilab">${k === 'model' ? `<b>${esc(bt.labels[k])}</b>` : esc(bt.labels[k])}</span>
+        <span class="itrack flat"><i class="${k === 'model' ? 'pos' : 'base'}" style="width:${(m.mae / max * 100).toFixed(1)}%"></i><u style="left:${(m.lo / max * 100).toFixed(1)}%;width:${((m.hi - m.lo) / max * 100).toFixed(1)}%"></u></span><span class="num ival">${m.mae.toFixed(2)}</span></div>`; }).join('')}</div>
+      <h3 class="acc-h">What each piece is worth</h3>
+      <p class="muted">The model with one piece taken away. A bigger miss means the piece helps; a range that crosses zero means it makes no measurable difference.</p>
+      <div class="table-wrap"><table class="acc"><thead><tr><th class="l">Change</th><th>Miss</th><th>Against full model</th></tr></thead>
+        <tbody>${bt.ablations.map((k) => { const d = pooled.diff[k]; const helps = d.lo > 0; return `<tr style="cursor:default"><td class="l">${esc(bt.labels[k])}</td><td>${pooled.mae[k].mae.toFixed(2)}</td>
+          <td class="${helps ? 'down' : 'muted'}">${signedD(d)} <span class="ci">${d.lo.toFixed(2)} to ${d.hi.toFixed(2)}</span></td></tr>`; }).join('')}</tbody></table></div>
+      <p class="chart-note">The FantasyPros blend in the live model has no history to test against, so it is not in these numbers.</p>` : ''}
+    <h3 class="acc-h">Live this season</h3>${liveBlock}
+    <p class="chart-note">Re-run the evaluation with <code>npm run backtest</code>.</p></div></div>`;
 }
 
 // ---------- player drawer ----------

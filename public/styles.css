@@ -586,3 +586,12 @@ table.standings tr.me td.rank { color: var(--accent); }
 }
 .moves li { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; padding-left: 18px; position: relative; }
 .moves li::before { position: absolute; left: 0; top: 0; }
+/* projection accuracy */
+.acc-body > p { max-width: 70ch; }
+.acc-body > p + p, .acc-body > .table-wrap, .acc-body > .impact { margin-top: 12px; }
+.acc-h { font: 700 15px/1 var(--display); text-transform: uppercase; letter-spacing: .03em; margin: 26px 0 10px; }
+.ci { font: 11px var(--mono); color: var(--muted); margin-left: 4px; white-space: nowrap; }
+table.acc td, table.acc th { padding-top: 7px; padding-bottom: 7px; }
+.itrack.flat u { position: absolute; top: 50%; height: 1px; background: var(--text); opacity: .7; }
+.itrack.flat u::before, .itrack.flat u::after { content: ""; position: absolute; top: -4px; width: 1px; height: 9px; background: var(--text); }
+.itrack.flat u::before { left: 0; } .itrack.flat u::after { right: 0; }
