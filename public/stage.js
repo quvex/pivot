@@ -206,9 +206,10 @@ const ENGRAVE = {
 };
 
 // ---------- the bodies: a rigged human model, posed by bone ----------
-// One mannequin model (Mixamo's X Bot, as shipped in three.js's examples), cloned for each player,
-// scaled to his height, kept breathing with its idle animation and bent into a basketball stance
-// by adding a rotation to a handful of joints every frame.
+// One rigged human model (Mixamo's X Bot, as shipped in three.js's examples), cloned for each
+// player, reshaped to his listed height and weight, dressed in a basketball kit, kept breathing with
+// its idle animation and bent into a basketball stance by adding a rotation to a handful of joints
+// every frame.
 const BODY_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/models/gltf/Xbot.glb';
 // jersey numbers are real geometry in a bold face, raised slightly off the chest
 const NUMBER_FONT = 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/fonts/helvetiker_bold.typeface.json';
@@ -225,9 +226,145 @@ function loadBody() {
       new FontLoader().loadAsync(NUMBER_FONT).catch(() => null),
     ]);
     const box = new THREE.Box3().setFromObject(gltf.scene);
-    return { gltf, clone, height: box.max.y - box.min.y, font, TextGeometry };
+    const kit = {};
+    gltf.scene.traverse((o) => { if (o.isSkinnedMesh) kit[o.name] = planKit(o); });
+    return { gltf, clone, height: box.max.y - box.min.y, font, TextGeometry, kit };
   });
   return bodyPromise;
+}
+
+// The kit is cut from the body itself: each vertex goes to the jersey, the shorts or the shoes by
+// which bones move it most, and the cloth stands off the skin along the surface normal. Because the
+// pieces keep the body's skin weights they bend with it in every pose. Offsets are in metres on the
+// unscaled model.
+const GARMENTS = {
+  jersey: { bones: ['Spine', 'Spine1', 'Spine2', 'LeftShoulder', 'RightShoulder'], out: 0.011, hang: 0.026 },
+  shorts: { bones: ['Hips', 'LeftUpLeg', 'RightUpLeg'], out: 0.01, flare: 0.022 },
+  shoes: { bones: ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase', 'LeftToe_End', 'RightToe_End'], out: 0.014 },
+};
+const SKIN_BONES = ['Neck', 'Head', 'HeadTop_End', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm', 'LeftHand', 'RightHand', 'LeftLeg', 'RightLeg'];
+const boneName = (b) => b.name.replace(/^mixamorig:?/, '');
+
+// once per model: which triangles each garment keeps, and how far each of its vertices stands off
+function planKit(src) {
+  const g = src.geometry, names = src.skeleton.bones.map(boneName);
+  const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, pos = g.attributes.position;
+  const n = pos.count, owner = new Int8Array(n).fill(-1), legs = new Float32Array(n), waist = new Float32Array(n);
+  const kinds = Object.entries(GARMENTS);
+  for (let i = 0; i < n; i++) {
+    const score = new Float32Array(kinds.length + 1);
+    for (let k = 0; k < 4; k++) {
+      const name = names[si.getComponent(i, k)], wt = sw.getComponent(i, k);
+      kinds.forEach(([, gm], j) => { if (gm.bones.includes(name)) score[j] += wt; });
+      if (SKIN_BONES.includes(name) || /Hand|Head/.test(name)) score[kinds.length] += wt;
+      if (/UpLeg$/.test(name)) legs[i] += wt;
+      if (name === 'Spine' || name === 'Hips') waist[i] += wt;
+    }
+    let best = kinds.length;
+    for (let j = 0; j < kinds.length; j++) if (score[j] > score[best]) best = j;
+    owner[i] = best < kinds.length ? best : -1;
+  }
+  g.computeBoundingBox();
+  const hip = g.boundingBox.min.y + (g.boundingBox.max.y - g.boundingBox.min.y) * 0.53;
+  const idx = g.index ? g.index.array : Array.from({ length: n }, (_, i) => i);
+  const skin = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    if ((owner[idx[t]] === -1) + (owner[idx[t + 1]] === -1) + (owner[idx[t + 2]] === -1) >= 2) skin.push(idx[t], idx[t + 1], idx[t + 2]);
+  }
+  const garments = kinds.map(([name, gm], j) => {
+    const tris = [];
+    for (let t = 0; t < idx.length; t += 3) {
+      const a = idx[t], b = idx[t + 1], c = idx[t + 2];
+      // a triangle belongs to a garment when most of its corners do
+      if ((owner[a] === j) + (owner[b] === j) + (owner[c] === j) >= 2) tris.push(a, b, c);
+    }
+    // the shorts flare the further down the thigh they go; the jersey hangs straight off the chest
+    const off = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const drop = gm.flare ? Math.max(0, Math.min(1, (hip - pos.getY(i)) / 0.36)) ** 1.5 * legs[i] : 0;
+      off[i] = gm.out + (gm.flare || 0) * drop + (gm.hang || 0) * Math.min(1, waist[i]);
+    }
+    return { name, tris, off };
+  });
+  return { skin, garments };
+}
+
+// His frame. The model is a mannequin with a narrow waist and broad hips; a basketball player is
+// the other way round. Every vertex is moved toward or away from the line of the bone that carries
+// it (girth only, never length), by a factor per bone: a male athletic base, then thicker or
+// leaner by his body mass index against a typical NBA frame (about 6'7" and 218 lb).
+const FRAME = { Hips: 0.74, Spine: 1.34, Spine1: 1.2, Spine2: 1.1, Shoulder: 1.15, Arm: 1.1, ForeArm: 1.05, UpLeg: 0.8, Leg: 0.94, Neck: 1.2 };
+function girthOf(pl) {
+  const h = (pl.height || 79) * 0.0254, kg = (pl.weight || 218) * 0.4536;
+  const k = Math.max(-0.14, Math.min(0.28, ((kg / (h * h)) - 24.6) / 24.6 * 1.5));
+  const out = {};
+  for (const [part, base] of Object.entries(FRAME)) {
+    const trunk = /Hips|Spine/.test(part);
+    out[part] = base * (1 + k * (trunk ? 0.8 : 0.55));
+  }
+  return out;
+}
+function shapeGeometry(mesh, girth) {
+  const g = mesh.geometry, sk = mesh.skeleton, bones = sk.bones;
+  const inv = mesh.bindMatrixInverse;
+  // each bone's line in the model's own space: from its head toward its main child
+  const head = bones.map((b, i) => new THREE.Vector3().setFromMatrixPosition(new THREE.Matrix4().copy(sk.boneInverses[i]).invert()).applyMatrix4(inv));
+  const axis = bones.map((b, i) => {
+    const kids = b.children.filter((c) => c.isBone);
+    const next = kids.find((c) => /Spine|Neck|Head$/.test(c.name)) || kids[0];
+    const j = next ? bones.indexOf(next) : -1;
+    return j >= 0 ? head[j].clone().sub(head[i]).normalize() : null;
+  });
+  const factor = bones.map((b) => {
+    const name = boneName(b).replace(/^(Left|Right)/, '');
+    return girth[name] ?? 1;
+  });
+  const hips = bones.findIndex((b) => boneName(b) === 'Hips');
+  const pos = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+  const p = new Float32Array(pos.count * 3);
+  const v = new THREE.Vector3(), d = new THREE.Vector3(), acc = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    acc.set(0, 0, 0);
+    let total = 0;
+    for (let k = 0; k < 4; k++) {
+      const w = sw.getComponent(i, k);
+      if (!w) continue;
+      const b = si.getComponent(i, k), ax = axis[b];
+      let f = factor[b];
+      // the pelvis narrows, but above the hip joint the same bone carries the waist, which fills out
+      if (b === hips) f += (girth.Spine - f) * Math.max(0, Math.min(1, (v.y - head[b].y) / 0.07));
+      d.subVectors(v, head[b]);
+      if (ax && f !== 1) {
+        const along = d.dot(ax);
+        d.sub(ax.clone().multiplyScalar(along)).multiplyScalar(f).addScaledVector(ax, along);
+      }
+      acc.addScaledVector(d.add(head[b]), w);
+      total += w;
+    }
+    if (total) acc.divideScalar(total); else acc.copy(v);
+    p[i * 3] = acc.x; p[i * 3 + 1] = acc.y; p[i * 3 + 2] = acc.z;
+  }
+  const geo = g.clone();
+  geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  return geo;
+}
+function garmentGeometry(shaped, plan) {
+  const pos = shaped.attributes.position, nor = shaped.attributes.normal, n = pos.count;
+  const p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const o = plan.off[i];
+    p[i * 3] = pos.getX(i) + nor.getX(i) * o;
+    p[i * 3 + 1] = pos.getY(i) + nor.getY(i) * o;
+    p[i * 3 + 2] = pos.getZ(i) + nor.getZ(i) * o;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  geo.setAttribute('normal', nor);
+  geo.setAttribute('skinIndex', shaped.attributes.skinIndex);
+  geo.setAttribute('skinWeight', shaped.attributes.skinWeight);
+  geo.setIndex(plan.tris);
+  return geo;
 }
 
 // Joint turns found by posing the model and looking at it: for an arm, z raises it out to the side
@@ -246,13 +383,29 @@ function dressFigure(f, body, kit, base) {
   model.scale.setScalar(s);
   const st = STANCES[f.pose] || STANCES.set;
   model.position.y = -st.drop * f.metres;
-  model.traverse((o) => {
-    if (!o.isMesh) return;
-    const joints = /joint/i.test(o.material.name);
-    o.material = joints ? kit.shorts : kit.jersey;
+  // his frame, then the kit cut to fit it and bound to his skeleton
+  const girth = girthOf(f.pl);
+  const meshes = [];
+  model.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  for (const o of meshes) {
+    o.material = base.skin;
     o.castShadow = true;
     o.frustumCulled = false;
-  });
+    const plan = o.isSkinnedMesh && body.kit[o.name];
+    if (!plan) continue;
+    o.geometry = shapeGeometry(o, girth);
+    // the mannequin's separate joint pieces would poke through the kit: keep their bare-skin parts
+    // as skin and dress the rest along with the body
+    const joints = !/surface/i.test(o.name);
+    for (const g of plan.garments) {
+      const cloth = new THREE.SkinnedMesh(garmentGeometry(o.geometry, joints ? { ...g, off: g.off.map((x) => x * 0.6) } : g), g.name === 'shoes' ? base.shoe : kit[g.name]);
+      cloth.bind(o.skeleton, o.bindMatrix);
+      cloth.castShadow = true;
+      cloth.frustumCulled = false;
+      o.parent.add(cloth);
+    }
+    if (joints) o.geometry.setIndex(plan.skin);
+  }
   f.root.add(model);
   const bones = {};
   model.traverse((o) => { if (o.isBone) bones[o.name.replace(/^mixamorig:?/, '')] = o; });
@@ -296,6 +449,9 @@ function dressFigure(f, body, kit, base) {
       const at = centre.clone().addScaledVector(dir, (Number.isFinite(surface) ? surface : 0.15) + 0.015);
       const geo = new body.TextGeometry(f.pl.jersey, { font: body.font, size: 0.23 * (f.metres / 2), depth: 0.012, curveSegments: 3 });
       geo.center();
+      geo.computeBoundingBox();
+      const wide = geo.boundingBox.max.x - geo.boundingBox.min.x, fit = 0.27 * (f.metres / 2);
+      if (wide > fit) geo.scale(fit / wide, fit / wide, 1);
       const d = new THREE.Mesh(geo, kit.number);
       f.root.parent.add(d);
       d.position.copy(at);
@@ -405,7 +561,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
   scene.add(sun, sun.target);
 
   const base = {
-    skin: new THREE.MeshLambertMaterial({ color: grey(0.42) }),
+    skin: new THREE.MeshLambertMaterial({ color: grey(0.55) }),
     shoe: new THREE.MeshLambertMaterial({ color: grey(0.18) }),
     ring: new THREE.MeshBasicMaterial({ color: grey(0.05) }),
     ball: new THREE.MeshLambertMaterial({ color: grey(0.5) }),
