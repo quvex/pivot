@@ -110,9 +110,19 @@ function renderChrome() {
     : failed.length ? `<div class="bar err">${failed.map((f) => `${esc(f.label)}: ${esc(f.detail)}`).join(' · ')} <a href="#settings">Details</a></div>` : '';
 }
 
+// Motion (motion.dev) handles the app's state transitions; the front page's scroll story uses GSAP.
+const motion = import('https://cdn.jsdelivr.net/npm/motion@11.11.17/+esm').catch(() => null);
+const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let lastTab = null;
 function render() {
   renderChrome();
   const tab = (location.hash || '#home').slice(1);
+  if (tab !== 'home') { unmountStage?.(); unmountStage = null; }
+  document.body.dataset.page = tab;
+  if (tab !== lastTab && lastTab !== null && !calm()) {
+    motion.then((m) => m?.animate($('#app'), { opacity: [0, 1], transform: ['translateY(10px)', 'translateY(0)'] }, { duration: 0.42, ease: [0.16, 1, 0.3, 1] }));
+  }
+  lastTab = tab;
   const app = $('#app');
   if (tab !== 'settings' && !DEMO) {
     const busy = S.job.running || polling;
@@ -242,37 +252,48 @@ const ordinal = (n) => {
   return `${n}${teen ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'}`;
 };
 
+let unmountStage = null;
 function renderHome(app) {
   const w = S.week, me = w?.teams.find((t) => t.mine), leader = w?.teams[0];
   const movers = S.players.filter((p) => p.signal).sort((a, b) => b.signal.score - a.signal.score).slice(0, 9);
+  const arc = S.players.filter((p) => p.s.season?.gp >= 3 && p.model.rank <= 140)
+    .map((p) => ({ p, d: p.model.fpg - p.market.recent })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, innerWidth < 760 ? 7 : 11);
   const tape = S.players.filter((p) => p.s.season?.gp >= 3 && p.model.rank <= 140)
     .map((p) => ({ p, d: p.model.fpg - p.market.recent })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 28);
   const tapeHtml = tape.map(({ p, d }) => `<span class="tick" data-player="${p.id}"><b>${esc(p.name)}</b><span class="num">${fmt(p.model.fpg)}</span><span class="num ${d >= 0 ? 'up' : 'down'}">${TRI(d >= 0)}${fmt(Math.abs(d))}</span></span>`).join('');
   const moves = (w?.my?.advice || []).slice(0, 3).map((a) => a.split(/: (?=[a-z])/)[0].replace(/\.$/, ''));
   const today = new Date(DEMO ? S.meta.refreshedAt : Date.now()).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-  const gap = me && leader ? leader.points - me.points : 0;
+  const m = myMatchup(w);
+  const board = !me ? '' : m
+    ? `<div class="board">
+        <div><b>${me.record ? `${me.record.wins}-${me.record.losses}` : ordinal(me.rank)}</b><span>${ordinal(me.rank)} of ${w.teams.length}</span></div>
+        <div><b class="num">${m.me.projected.toLocaleString('en-US')}</b><span>vs ${esc(m.opp.name)} ${m.opp.projected.toLocaleString('en-US')}</span></div>
+        <div><b class="num">${Math.round(m.win * 100)}%</b><span>to win this week</span></div></div>`
+    : `<div class="board">
+        <div><b>${ordinal(me.rank)}</b><span>of ${w.teams.length}</span></div>
+        <div><b class="num">${me.points.toLocaleString('en-US')}</b><span>points</span></div>
+        <div><b class="num">${me.rank === 1 ? 'Lead' : `−${(leader.points - me.points).toLocaleString('en-US')}`}</b><span>${me.rank === 1 ? `by ${(me.points - w.teams[1].points).toLocaleString('en-US')}` : `to ${esc(leader.name)}`}</span></div></div>`;
 
   app.innerHTML = `
-    <section class="hero">
-      <canvas id="terrain" aria-hidden="true"></canvas>
-      <h1 class="hero-word" aria-label="Pivot">Pivot</h1>
-      <div class="today">
-        <p class="today-date">${esc(today)}${me ? ` · ${esc(me.name)}` : ''}</p>
-        ${me && myMatchup(w) ? (() => { const m = myMatchup(w); const r = me.record; return `<div class="board">
-            <div><b>${r ? `${r.wins}-${r.losses}` : ordinal(me.rank)}</b><span>${ordinal(me.rank)} of ${w.teams.length}</span></div>
-            <div><b class="num">${m.me.projected.toLocaleString('en-US')}</b><span>vs ${esc(m.opp.name)} ${m.opp.projected.toLocaleString('en-US')}</span></div>
-            <div><b class="num">${Math.round(m.win * 100)}%</b><span>to win this week</span></div>
-          </div>
-          ${moves.length ? `<ol class="moves">${moves.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : '<p class="muted">Nothing needs action today.</p>'}
-          <a class="more" href="#week">See the matchup <span aria-hidden="true">→</span></a>`; })()
-        : me ? `<div class="board">
-            <div><b>${ordinal(me.rank)}</b><span>of ${w.teams.length}</span></div>
-            <div><b class="num">${me.points.toLocaleString('en-US')}</b><span>points</span></div>
-            <div><b class="num">${me.rank === 1 ? 'Lead' : `−${gap.toLocaleString('en-US')}`}</b><span>${me.rank === 1 ? `by ${(me.points - w.teams[1].points).toLocaleString('en-US')}` : `to ${esc(leader.name)}`}</span></div>
-          </div>
-          ${moves.length ? `<ol class="moves">${moves.map((m) => `<li>${esc(m)}</li>`).join('')}</ol>` : '<p class="muted">Nothing needs action today.</p>'}
-          <a class="more" href="#week">Plan the week <span aria-hidden="true">→</span></a>`
-        : `<p>Sync your ESPN league to see your standing and today's moves.</p><a class="more" href="#settings">Sync league <span aria-hidden="true">→</span></a>`}
+    <section class="stage" id="stage" data-beat="a">
+      <div class="stage-pin">
+        <canvas id="court" aria-hidden="true"></canvas>
+        <div class="col-labels" id="col-labels"></div>
+        <div class="beat beat-a">
+          <h1 class="wordmark">Pivot</h1>
+          <p>Your league, priced every morning.</p>
+        </div>
+        <div class="beat beat-b">
+          <h2>Where the market is wrong</h2>
+          <p>Each column is a player's rest-of-season projection. Green ones are playing below it, red ones above. Click one for the details.</p>
+        </div>
+        <aside class="jumbotron" aria-label="Today">
+          <p class="today-date">${esc(today)}${me ? ` · ${esc(me.name)}` : ''}</p>
+          ${me ? `${board}
+            ${moves.length ? `<ol class="moves">${moves.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : '<p class="muted">Nothing needs action today.</p>'}
+            <a class="more" href="#week">${m ? 'See the matchup' : 'Plan the week'} <span aria-hidden="true">→</span></a>`
+          : `<p>Sync your ESPN league to see your standing and today's moves.</p><a class="more" href="#settings">Sync league <span aria-hidden="true">→</span></a>`}
+        </aside>
       </div>
     </section>
     <div class="ticker" aria-label="Projection against recent production, biggest gaps first"><div class="track">${tapeHtml}${tapeHtml.replaceAll('data-player', 'aria-hidden="true" data-player')}</div></div>
@@ -288,7 +309,19 @@ function renderHome(app) {
         <section class="panel"><header><h2>Best offer on the table</h2><p><a href="#trades">All offers</a></p></header><div class="body" id="home-offer">${homeOffer()}</div></section>
       </div>
     </div>`;
-  startTerrain($('#terrain'));
+
+  const stage = $('#stage');
+  unmountStage?.();
+  unmountStage = null;
+  import('./stage.js').then(({ mountStage }) => {
+    if (!stage.isConnected) return;
+    unmountStage = mountStage({
+      canvas: $('#court'), labels: $('#col-labels'), section: stage,
+      players: arc.map(({ p, d }) => ({ id: p.id, name: p.name, fpg: p.model.fpg, gap: d })),
+      onPick: (id) => openPlayer(id),
+      onPhase: (pr) => { stage.dataset.beat = pr < 0.2 ? 'a' : pr < 0.74 ? 'b' : 'c'; },
+    });
+  }).catch(() => stage.classList.add('no-webgl'));
   loadHomeOffer();
   app.onclick = (e) => {
     if (!e.target.closest('[data-home-edit]') || !ui.home.offer) return;
@@ -1083,6 +1116,11 @@ function openPlayer(id) {
     ${news.length ? `<section><h3>Recent news</h3><ul>${news.map((n) => `<li><span class="chip ${n.tone}">${esc(n.label)}</span> ${esc(n.headline || n.lines?.[0] || '')} <span class="muted">${timeAgo(n.time)}</span></li>`).join('')}</ul></section>` : ''}
     <section><button class="btn small primary" data-mock="${p.id}">Mock offers</button> ${p.own?.type === 'mine' || !S.league ? `<button class="btn small" data-analyze="give:${p.id}">Offer him in a trade</button>` : ''} ${p.own?.type === 'team' || !S.league ? `<button class="btn small" data-analyze="get:${p.id}">Build an offer for him</button>` : ''}</section>`;
   d.hidden = false; $('#scrim').hidden = false;
+  if (!calm()) motion.then((m) => {
+    if (!m) return;
+    m.animate(d, { transform: ['translateX(48px)', 'translateX(0)'], opacity: [0.4, 1] }, { type: 'spring', stiffness: 320, damping: 32 });
+    m.animate([...d.querySelectorAll('section')], { opacity: [0, 1], transform: ['translateY(8px)', 'translateY(0)'] }, { delay: m.stagger(0.035, { startDelay: 0.05 }), duration: 0.3 });
+  });
 }
 function closeDrawer() { $('#drawer').hidden = true; $('#scrim').hidden = true; }
 
