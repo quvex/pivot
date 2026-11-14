@@ -119,6 +119,7 @@ function render() {
   const tab = (location.hash || '#home').slice(1);
   if (tab !== 'home') { unmountStage?.(); unmountStage = null; }
   document.body.dataset.page = tab;
+  document.body.classList.toggle('demo', DEMO);
   if (tab !== lastTab && lastTab !== null && !calm()) {
     motion.then((m) => m?.animate($('#app'), { opacity: [0, 1], transform: ['translateY(10px)', 'translateY(0)'] }, { duration: 0.42, ease: [0.16, 1, 0.3, 1] }));
   }

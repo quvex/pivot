@@ -705,3 +705,6 @@ body[data-page="home"] .ticker { padding: 0; margin-top: 0; }
   .beat, .jumbotron { transition: none; }
 }
 .foot .chip + .chip::before, .offer .foot .chip + .chip::before { margin: 0 8px; }
+/* demo notice on the front page: pinned above the status bar so the court can fill the screen */
+body.demo[data-page="home"] #banner .bar.demo { position: fixed; left: 0; right: 0; bottom: 28px; z-index: 16; border-top: 1px solid var(--line); border-bottom: 0; }
+body.demo[data-page="home"] .beat-a { bottom: calc(clamp(18px, 5vh, 56px) + 44px); }
