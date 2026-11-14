@@ -205,12 +205,14 @@ const ENGRAVE = {
     }`,
 };
 
-// ---------- the bodies: a rigged human model, posed by bone ----------
-// One rigged human model (Mixamo's X Bot, as shipped in three.js's examples), cloned for each
-// player, reshaped to his listed height and weight, dressed in a basketball kit, kept breathing with
-// its idle animation and bent into a basketball stance by adding a rotation to a handful of joints
-// every frame.
+// ---------- the bodies: a realistic human, posed by a puppet ----------
+// Each player is a realistic male base mesh (CC0, by Orange Juice Games, in public/models), reshaped
+// to his listed height and weight and dressed in a basketball kit. It is posed by an invisible
+// puppet: Mixamo's X Bot (as shipped in three.js's examples), which keeps breathing with its idle
+// animation and is bent into a basketball stance by adding a rotation to a handful of joints every
+// frame. If the realistic body cannot load, the puppet itself is shown, reshaped and dressed.
 const BODY_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/models/gltf/Xbot.glb';
+const REAL_URL = new URL('./models/male-base.glb', import.meta.url).href;
 // jersey numbers are real geometry in a bold face, raised slightly off the chest
 const NUMBER_FONT = 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/fonts/helvetiker_bold.typeface.json';
 let bodyPromise = null;
@@ -221,14 +223,23 @@ function loadBody() {
     import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/FontLoader.js/+esm'),
     import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/geometries/TextGeometry.js/+esm'),
   ]).then(async ([{ GLTFLoader }, { clone }, { FontLoader }, { TextGeometry }]) => {
-    const [gltf, font] = await Promise.all([
-      new GLTFLoader().loadAsync(BODY_URL),
+    const loader = new GLTFLoader();
+    const [gltf, realGltf, font] = await Promise.all([
+      loader.loadAsync(BODY_URL),
+      loader.loadAsync(REAL_URL).catch(() => null),
       new FontLoader().loadAsync(NUMBER_FONT).catch(() => null),
     ]);
-    const box = new THREE.Box3().setFromObject(gltf.scene);
-    const kit = {};
-    gltf.scene.traverse((o) => { if (o.isSkinnedMesh) kit[o.name] = planKit(o); });
-    return { gltf, clone, height: box.max.y - box.min.y, font, TextGeometry, kit };
+    const asset = (g, frame, chestLift) => {
+      const box = new THREE.Box3().setFromObject(g.scene);
+      const kit = {};
+      g.scene.traverse((o) => { if (o.isSkinnedMesh) kit[o.name] = planKit(o); });
+      g.scene.updateMatrixWorld(true);
+      const hb = bonesOf(g.scene);
+      const headAbove = hb.Head ? box.max.y - hb.Head.getWorldPosition(new THREE.Vector3()).y : 0.12;
+      return { gltf: g, height: box.max.y - box.min.y, kit, frame, chestLift, headAbove, GLTFLoader };
+    };
+    const puppet = asset(gltf, MANNEQUIN_FRAME, 0.07);
+    return { ...puppet, clone, font, TextGeometry, real: realGltf ? asset(realGltf, HUMAN_FRAME, 0.02) : null };
   });
   return bodyPromise;
 }
@@ -242,8 +253,22 @@ const GARMENTS = {
   shorts: { bones: ['Hips', 'LeftUpLeg', 'RightUpLeg'], out: 0.01, flare: 0.022 },
   shoes: { bones: ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase', 'LeftToe_End', 'RightToe_End'], out: 0.014 },
 };
-const SKIN_BONES = ['Neck', 'Head', 'HeadTop_End', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm', 'LeftHand', 'RightHand', 'LeftLeg', 'RightLeg'];
-const boneName = (b) => b.name.replace(/^mixamorig:?/, '');
+const SKIN_BONES = ['Neck', 'Head', 'HeadTop_End', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm', 'LeftHand', 'RightHand', 'LeftHandFinger', 'RightHandFinger', 'LeftLeg', 'RightLeg'];
+// the realistic mesh uses Blender's Rigify names; everything here speaks Mixamo's
+const RIGIFY = { spine: 'Hips', spine001: 'Spine', spine002: 'Spine1', spine003: 'Spine2', spine004: 'Neck', spine005: 'Head' };
+for (const [s, side] of [['L', 'Left'], ['R', 'Right']]) {
+  Object.assign(RIGIFY, {
+    [`shoulder${s}`]: `${side}Shoulder`, [`upper_arm${s}`]: `${side}Arm`, [`forearm${s}`]: `${side}ForeArm`, [`hand${s}`]: `${side}Hand`,
+    [`f_middle01${s}`]: `${side}HandMiddle1`, [`pelvis${s}`]: 'Hips', [`thigh${s}`]: `${side}UpLeg`, [`shin${s}`]: `${side}Leg`,
+    [`foot${s}`]: `${side}Foot`, [`heel02${s}`]: `${side}Foot`, [`toe${s}`]: `${side}ToeBase`,
+  });
+}
+const boneName = (b) => {
+  const n = b.name.replace(/^mixamorig:?/, '');
+  if (RIGIFY[n]) return RIGIFY[n];
+  const finger = /^(?:f_\w+|thumb\d+)([LR])$/.exec(n);
+  return finger ? `${finger[1] === 'L' ? 'Left' : 'Right'}HandFinger` : n;
+};
 
 // once per model: which triangles each garment keeps, and how far each of its vertices stands off
 function planKit(src) {
@@ -251,6 +276,7 @@ function planKit(src) {
   const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, pos = g.attributes.position;
   const n = pos.count, owner = new Int8Array(n).fill(-1), legs = new Float32Array(n), waist = new Float32Array(n);
   const kinds = Object.entries(GARMENTS);
+  const cover = kinds.map(() => new Float32Array(n));
   for (let i = 0; i < n; i++) {
     const score = new Float32Array(kinds.length + 1);
     for (let k = 0; k < 4; k++) {
@@ -263,6 +289,12 @@ function planKit(src) {
     let best = kinds.length;
     for (let j = 0; j < kinds.length; j++) if (score[j] > score[best]) best = j;
     owner[i] = best < kinds.length ? best : -1;
+    // how firmly each garment holds this vertex: 0.5 exactly where it gives way to the next thing
+    for (let j = 0; j < kinds.length; j++) {
+      let rival = 0;
+      for (let r = 0; r <= kinds.length; r++) if (r !== j) rival = Math.max(rival, score[r]);
+      cover[j][i] = 0.5 + 0.5 * (score[j] - rival);
+    }
   }
   g.computeBoundingBox();
   const hip = g.boundingBox.min.y + (g.boundingBox.max.y - g.boundingBox.min.y) * 0.53;
@@ -275,8 +307,8 @@ function planKit(src) {
     const tris = [];
     for (let t = 0; t < idx.length; t += 3) {
       const a = idx[t], b = idx[t + 1], c = idx[t + 2];
-      // a triangle belongs to a garment when most of its corners do
-      if ((owner[a] === j) + (owner[b] === j) + (owner[c] === j) >= 2) tris.push(a, b, c);
+      // every triangle the garment touches; the hem is then cut smoothly across them in the shader
+      if (owner[a] === j || owner[b] === j || owner[c] === j) tris.push(a, b, c);
     }
     // the shorts flare the further down the thigh they go; the jersey hangs straight off the chest
     const off = new Float32Array(n);
@@ -284,17 +316,36 @@ function planKit(src) {
       const drop = gm.flare ? Math.max(0, Math.min(1, (hip - pos.getY(i)) / 0.36)) ** 1.5 * legs[i] : 0;
       off[i] = gm.out + (gm.flare || 0) * drop + (gm.hang || 0) * Math.min(1, waist[i]);
     }
-    return { name, tris, off };
+    return { name, tris, off, cover: cover[j] };
   });
-  return { skin, garments };
+  // each bone's line at rest, in the mesh's own space: from its head toward its main child
+  src.updateMatrixWorld(true);
+  const bones = src.skeleton.bones, tmp = new THREE.Vector3();
+  const head = bones.map((bo) => src.worldToLocal(bo.getWorldPosition(tmp.clone())));
+  const axis = bones.map((bo, i) => {
+    const kids = bo.children.filter((c) => c.isBone);
+    const want = NEXT_BONE[boneName(bo)];
+    const next = (want && kids.find((c) => boneName(c) === want)) || kids.find((c) => /Spine|Neck|Head$/.test(boneName(c))) || kids[0];
+    const j = next ? bones.indexOf(next) : -1;
+    return j >= 0 ? head[j].clone().sub(head[i]).normalize() : null;
+  });
+  // the body without its head, for when a face is set on it
+  const headW = new Float32Array(n);
+  for (let i = 0; i < n; i++) for (let k = 0; k < 4; k++) if (/^Head/.test(names[si.getComponent(i, k)])) headW[i] += sw.getComponent(i, k);
+  const noHead = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    if ((headW[idx[t]] > 0.5) + (headW[idx[t + 1]] > 0.5) + (headW[idx[t + 2]] > 0.5) < 2) noHead.push(idx[t], idx[t + 1], idx[t + 2]);
+  }
+  return { skin, garments, head, axis, noHead };
 }
 
-// His frame. The model is a mannequin with a narrow waist and broad hips; a basketball player is
-// the other way round. Every vertex is moved toward or away from the line of the bone that carries
-// it (girth only, never length), by a factor per bone: a male athletic base, then thicker or
-// leaner by his body mass index against a typical NBA frame (about 6'7" and 218 lb).
-const FRAME = { Hips: 0.74, Spine: 1.34, Spine1: 1.2, Spine2: 1.1, Shoulder: 1.15, Arm: 1.1, ForeArm: 1.05, UpLeg: 0.8, Leg: 0.94, Neck: 1.2 };
-function girthOf(pl) {
+// His frame. Every vertex is moved toward or away from the line of the bone that carries it (girth
+// only, never length), by a factor per bone: an athletic base for the model, then thicker or
+// leaner by his body mass index against a typical NBA frame (about 6'7" and 218 lb). The mannequin
+// needs a lot of help (narrow waist, broad hips); the realistic body only a little.
+const MANNEQUIN_FRAME = { Hips: 0.74, Spine: 1.34, Spine1: 1.2, Spine2: 1.1, Shoulder: 1.15, Arm: 1.1, ForeArm: 1.05, UpLeg: 0.8, Leg: 0.94, Neck: 1.2 };
+const HUMAN_FRAME = { Hips: 1, Spine: 1.04, Spine1: 1.04, Spine2: 1.05, Shoulder: 1.08, Arm: 1.06, ForeArm: 1.03, UpLeg: 1, Leg: 1, Neck: 1.05 };
+function girthOf(pl, FRAME) {
   const h = (pl.height || 79) * 0.0254, kg = (pl.weight || 218) * 0.4536;
   const k = Math.max(-0.14, Math.min(0.28, ((kg / (h * h)) - 24.6) / 24.6 * 1.5));
   const out = {};
@@ -304,17 +355,8 @@ function girthOf(pl) {
   }
   return out;
 }
-function shapeGeometry(mesh, girth) {
-  const g = mesh.geometry, sk = mesh.skeleton, bones = sk.bones;
-  const inv = mesh.bindMatrixInverse;
-  // each bone's line in the model's own space: from its head toward its main child
-  const head = bones.map((b, i) => new THREE.Vector3().setFromMatrixPosition(new THREE.Matrix4().copy(sk.boneInverses[i]).invert()).applyMatrix4(inv));
-  const axis = bones.map((b, i) => {
-    const kids = b.children.filter((c) => c.isBone);
-    const next = kids.find((c) => /Spine|Neck|Head$/.test(c.name)) || kids[0];
-    const j = next ? bones.indexOf(next) : -1;
-    return j >= 0 ? head[j].clone().sub(head[i]).normalize() : null;
-  });
+function shapeGeometry(mesh, girth, { head, axis }) {
+  const g = mesh.geometry, bones = mesh.skeleton.bones;
   const factor = bones.map((b) => {
     const name = boneName(b).replace(/^(Left|Right)/, '');
     return girth[name] ?? 1;
@@ -349,6 +391,21 @@ function shapeGeometry(mesh, girth) {
   geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
   return geo;
 }
+// Cloth: an ordinary material that drops every pixel the garment does not cover, so a hem runs in
+// a clean line across the body's triangles rather than following their edges.
+function cloth(color) {
+  const m = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float cover;\nvarying float vCover;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCover = cover;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vCover;')
+      .replace('#include <clipping_planes_fragment>', 'if (vCover < 0.5) discard;\n#include <clipping_planes_fragment>');
+  };
+  m.customProgramCacheKey = () => 'cloth';
+  return m;
+}
 function garmentGeometry(shaped, plan) {
   const pos = shaped.attributes.position, nor = shaped.attributes.normal, n = pos.count;
   const p = new Float32Array(n * 3);
@@ -363,6 +420,7 @@ function garmentGeometry(shaped, plan) {
   geo.setAttribute('normal', nor);
   geo.setAttribute('skinIndex', shaped.attributes.skinIndex);
   geo.setAttribute('skinWeight', shaped.attributes.skinWeight);
+  geo.setAttribute('cover', new THREE.BufferAttribute(plan.cover, 1));
   geo.setIndex(plan.tris);
   return geo;
 }
@@ -378,25 +436,55 @@ const STANCES = {
 };
 
 function dressFigure(f, body, kit, base) {
-  const model = body.clone(body.gltf.scene);
-  const s = f.metres / body.height;
-  model.scale.setScalar(s);
   const st = STANCES[f.pose] || STANCES.set;
-  model.position.y = -st.drop * f.metres;
+  // the puppet: the Mixamo model, which holds the stance and the breathing
+  const puppet = body.clone(body.gltf.scene);
+  puppet.scale.setScalar(f.metres / body.height);
+  puppet.position.y = -st.drop * f.metres;
+  f.root.add(puppet);
+  const pBones = bonesOf(puppet);
+
+  // what is seen: the realistic body when it loaded, following the puppet; otherwise the puppet
+  const real = body.real;
+  let shown = puppet, asset = body;
+  if (real) {
+    puppet.traverse((o) => { if (o.isMesh) o.visible = false; });
+    const model = body.clone(real.gltf.scene);
+    const wrap = new THREE.Group();
+    wrap.rotation.y = -Math.PI / 2; // the model faces +x; turn it to face the way the puppet does
+    wrap.scale.setScalar(f.metres / real.height);
+    wrap.add(model);
+    f.root.add(wrap);
+    shown = model; asset = real;
+    const rBones = bonesOf(model);
+    f.wrap = wrap;
+    f.hipPair = [rBones.Hips, pBones.Hips];
+    f.pairs = FOLLOW.filter(([a, b]) => rBones[a] && rBones[b] && pBones[a] && pBones[b]).map(([a, b]) => [rBones[a], rBones[b], pBones[a], pBones[b]]);
+    matchRest(f);
+  }
+  // now bring the puppet to life: idle breathing plus the stance
+  f.turns = Object.entries(st.rot).filter(([b]) => pBones[b]).map(([b, [x, y, z]]) => [pBones[b], new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z))]);
+  f.mixer = new THREE.AnimationMixer(puppet);
+  const idle = body.gltf.animations.find((a) => a.name === 'idle');
+  if (idle) { const act = f.mixer.clipAction(idle); act.time = Math.random() * idle.duration; act.play(); }
+  f.mixer.update(0);
+  for (const [bone, q] of f.turns) bone.quaternion.multiply(q);
+  if (f.pairs) retarget(f);
+
   // his frame, then the kit cut to fit it and bound to his skeleton
-  const girth = girthOf(f.pl);
+  const girth = girthOf(f.pl, asset.frame);
   const meshes = [];
-  model.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  shown.traverse((o) => { if (o.isMesh) meshes.push(o); });
   for (const o of meshes) {
     o.material = base.skin;
     o.castShadow = true;
     o.frustumCulled = false;
-    const plan = o.isSkinnedMesh && body.kit[o.name];
+    const plan = o.isSkinnedMesh && asset.kit[o.name];
     if (!plan) continue;
-    o.geometry = shapeGeometry(o, girth);
+    o.geometry = shapeGeometry(o, girth, plan);
     // the mannequin's separate joint pieces would poke through the kit: keep their bare-skin parts
     // as skin and dress the rest along with the body
-    const joints = !/surface/i.test(o.name);
+    const joints = shown === puppet && !/surface/i.test(o.name);
     for (const g of plan.garments) {
       const cloth = new THREE.SkinnedMesh(garmentGeometry(o.geometry, joints ? { ...g, off: g.off.map((x) => x * 0.6) } : g), g.name === 'shoes' ? base.shoe : kit[g.name]);
       cloth.bind(o.skeleton, o.bindMatrix);
@@ -405,17 +493,13 @@ function dressFigure(f, body, kit, base) {
       o.parent.add(cloth);
     }
     if (joints) o.geometry.setIndex(plan.skin);
+    (f.skins ||= []).push({ o, plan });
   }
-  f.root.add(model);
-  const bones = {};
-  model.traverse((o) => { if (o.isBone) bones[o.name.replace(/^mixamorig:?/, '')] = o; });
-  f.turns = Object.entries(st.rot).filter(([b]) => bones[b]).map(([b, [x, y, z]]) => [bones[b], new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z))]);
-  f.mixer = new THREE.AnimationMixer(model);
-  const idle = body.gltf.animations.find((a) => a.name === 'idle');
-  if (idle) { const act = f.mixer.clipAction(idle); act.time = Math.random() * idle.duration; act.play(); }
-  f.mixer.update(0);
-  for (const [bone, q] of f.turns) bone.quaternion.multiply(q);
+  const bones = bonesOf(shown);
   f.hands = [bones.LeftHand, bones.RightHand];
+  f.headBone = bones.Head;
+  f.neckBone = bones.Neck;
+  f.headAbove = asset.headAbove * (f.metres / asset.height);
   // his number, front and back. The chest surface is found from the posed (skinned) vertices in a
   // band around chest height; the number sits just off it, then rides on the chest bone so it
   // moves with the breathing and the lean.
@@ -423,9 +507,9 @@ function dressFigure(f, body, kit, base) {
   if (chest && f.pl.jersey && body.font) {
     f.root.updateMatrixWorld(true);
     const skinned = [];
-    model.traverse((o) => { if (o.isSkinnedMesh) skinned.push(o); });
+    shown.traverse((o) => { if (o.isSkinnedMesh) skinned.push(o); });
     const centre = chest.getWorldPosition(new THREE.Vector3());
-    centre.y += 0.07 * (f.metres / 2);
+    centre.y += asset.chestLift * (f.metres / 2);
     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(f.root.getWorldQuaternion(new THREE.Quaternion())).normalize();
     const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
     const band = 0.07 * (f.metres / 2), half = 0.08 * (f.metres / 2);
@@ -467,12 +551,68 @@ function dressFigure(f, body, kit, base) {
   }
 }
 
+function bonesOf(model) {
+  const out = {};
+  model.traverse((o) => { if (o.isBone) { const n = boneName(o); out[n] ||= o; } });
+  return out;
+}
+
+// The realistic body follows the puppet bone by bone. Once, at rest, each bone is turned to point
+// the same way as its twin (the two rest in different poses, T against A), and the difference in
+// orientation that is left (mostly the bones' roll) is recorded. From then on every bone takes its
+// twin's orientation with that difference applied, parents first, so twist carries over too.
+const FOLLOW = [
+  ['Hips', 'Spine'], ['Spine', 'Spine1'], ['Spine1', 'Spine2'], ['Spine2', 'Neck'], ['Neck', 'Head'],
+  ...['Left', 'Right'].flatMap((s) => [
+    [`${s}Shoulder`, `${s}Arm`], [`${s}Arm`, `${s}ForeArm`], [`${s}ForeArm`, `${s}Hand`], [`${s}Hand`, `${s}HandMiddle1`],
+    [`${s}UpLeg`, `${s}Leg`], [`${s}Leg`, `${s}Foot`], [`${s}Foot`, `${s}ToeBase`],
+  ]),
+];
+const NEXT_BONE = Object.fromEntries(FOLLOW);
+const rtA = new THREE.Vector3(), rtB = new THREE.Vector3(), rtC = new THREE.Vector3(), rtD = new THREE.Vector3();
+const rtQ = new THREE.Quaternion(), rtW = new THREE.Quaternion(), rtP = new THREE.Quaternion();
+function placeHips(f) {
+  const [rh, ph] = f.hipPair;
+  if (!rh || !ph) return;
+  f.root.worldToLocal(ph.getWorldPosition(rtA));
+  f.root.worldToLocal(rh.getWorldPosition(rtB));
+  f.wrap.position.add(rtA.sub(rtB));
+  f.wrap.updateMatrixWorld(true);
+}
+function matchRest(f) {
+  f.root.updateMatrixWorld(true);
+  placeHips(f);
+  for (const [rb, rc, pb, pc] of f.pairs) {
+    pb.getWorldPosition(rtA); pc.getWorldPosition(rtB); rtB.sub(rtA).normalize();
+    rb.getWorldPosition(rtC); rc.getWorldPosition(rtD); rtD.sub(rtC).normalize();
+    rtQ.setFromUnitVectors(rtD, rtB);
+    rb.getWorldQuaternion(rtW).premultiply(rtQ);
+    rb.parent.getWorldQuaternion(rtP).invert();
+    rb.quaternion.copy(rtP.multiply(rtW));
+    rb.updateMatrixWorld(true);
+  }
+  f.offsets = f.pairs.map(([rb, , pb]) => pb.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(rb.getWorldQuaternion(new THREE.Quaternion())));
+}
+function retarget(f) {
+  f.root.updateMatrixWorld(true);
+  placeHips(f);
+  f.pairs.forEach(([rb, , pb], i) => {
+    pb.getWorldQuaternion(rtW).multiply(f.offsets[i]);
+    rb.parent.getWorldQuaternion(rtP).invert();
+    rb.quaternion.copy(rtP.multiply(rtW));
+    rb.updateMatrixWorld(true);
+  });
+  placeHips(f);
+}
+
 const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
-// every frame: breathe, re-apply the stance on top, and move the ball with the hands
+// every frame: breathe, re-apply the stance on top, carry the realistic body along, and move the
+// ball with the hands
 function animateFigure(f, dt, t) {
   if (!f.mixer) return;
   f.mixer.update(dt);
   for (const [bone, q] of f.turns) bone.quaternion.multiply(q);
+  if (f.pairs) retarget(f);
   if (!f.ball) return;
   f.root.updateMatrixWorld(true);
   if (f.ball.userData.kind === 'shot') {
@@ -484,6 +624,76 @@ function animateFigure(f, dt, t) {
     const bounce = Math.abs(Math.sin(t * 5.2));
     f.ball.position.set(tmpB.x, 0.12 + bounce * Math.max(0, tmpB.y - 0.26), tmpB.z);
   }
+}
+
+// ---------- faces: made on this computer only ----------
+// A face is a textured 3D bust made from the player's photo (lib/heads.mjs). The bust is trimmed at
+// the neck (the narrowest slice above the shoulders), sized to the body's head, set on it facing
+// the way he faces, and carried by the head bone; the body's own head is hidden under it.
+async function attachFace(f, url, GLTFLoader) {
+  const gltf = await new GLTFLoader().loadAsync(url);
+  const bust = gltf.scene;
+  bust.updateMatrixWorld(true);
+  const meshes = [];
+  bust.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const box = new THREE.Box3().setFromObject(bust);
+  const H = box.max.y - box.min.y;
+  if (!meshes.length || !(H > 0)) return;
+  // width of the bust in horizontal slices, top to bottom
+  const N = 24, lo = new Array(N).fill(Infinity), hi = new Array(N).fill(-Infinity);
+  const v = new THREE.Vector3();
+  const slice = (y) => Math.min(N - 1, Math.max(0, Math.floor(((box.max.y - y) / H) * N)));
+  for (const m of meshes) {
+    const pos = m.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const s = slice(v.y);
+      lo[s] = Math.min(lo[s], v.x); hi[s] = Math.max(hi[s], v.x);
+    }
+  }
+  const width = lo.map((l, i) => (hi[i] > l ? hi[i] - l : 0));
+  let neck = -1, narrow = Infinity;
+  for (let i = Math.round(N * 0.35); i <= Math.round(N * 0.85); i++) if (width[i] > 0 && width[i] < narrow) { narrow = width[i]; neck = i; }
+  const shoulders = neck >= 0 && Math.max(...width.slice(neck + 1)) > narrow * 1.5;
+  const cut = shoulders ? box.max.y - ((neck + 0.5) / N) * H : -Infinity;
+  // drop everything below the neck; measure what is left
+  const kept = new THREE.Box3();
+  for (const m of meshes) {
+    const g = m.geometry, pos = g.attributes.position;
+    const idx = g.index ? g.index.array : Array.from({ length: pos.count }, (_, i) => i);
+    const ys = new Float32Array(pos.count);
+    for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); ys[i] = v.y; if (v.y >= cut) kept.expandByPoint(v); }
+    const tris = [];
+    for (let t = 0; t < idx.length; t += 3) if (ys[idx[t]] >= cut || ys[idx[t + 1]] >= cut || ys[idx[t + 2]] >= cut) tris.push(idx[t], idx[t + 1], idx[t + 2]);
+    g.setIndex(tris);
+    const map = m.material?.map || null;
+    m.material = new THREE.MeshLambertMaterial({ map, color: map ? 0xffffff : 0x9a9a9a });
+    m.castShadow = true;
+    m.frustumCulled = false;
+  }
+  if (kept.isEmpty() || !f.headBone || !f.neckBone || !f.alive()) return;
+  // the body's head, from the crown down to the base of the neck, as posed right now
+  f.root.updateMatrixWorld(true);
+  const headAt = f.headBone.getWorldPosition(new THREE.Vector3());
+  const neckAt = f.neckBone.getWorldPosition(new THREE.Vector3());
+  const up = headAt.clone().sub(neckAt).normalize();
+  const crown = headAt.clone().addScaledVector(up, f.headAbove);
+  const span = crown.distanceTo(neckAt);
+  // stand the trimmed bust on that span: crown to crown, facing the way he faces
+  const top = new THREE.Vector3((kept.min.x + kept.max.x) / 2, kept.max.y, (kept.min.z + kept.max.z) / 2);
+  bust.position.sub(top);
+  const holder = new THREE.Group();
+  holder.add(bust);
+  holder.scale.setScalar(span / (kept.max.y - Math.max(kept.min.y, cut === -Infinity ? kept.min.y : cut)));
+  // turn it to face his way, then tip it to the lean of his neck
+  holder.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up).multiply(f.root.getWorldQuaternion(new THREE.Quaternion()));
+  holder.position.copy(crown);
+  f.root.parent.add(holder);
+  holder.updateMatrixWorld(true);
+  f.headBone.attach(holder);
+  // hide his own head under the face
+  for (const { o, plan } of f.skins) if (plan.noHead) o.geometry.setIndex(plan.noHead);
+  f.bust = holder;
 }
 
 // ---------- the two teams ----------
@@ -505,7 +715,7 @@ const VIEWS = {
 };
 
 // teams: { under: [player], over: [player] }, each player { id, name, fpg, gap, slot, jersey, height, weight }
-export function mountStage({ canvas, labels, section, teams, onSelect, onView, avoid }) {
+export function mountStage({ canvas, labels, section, teams, onSelect, onView, avoid, faces }) {
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const small = innerWidth < 760;
   let renderer;
@@ -562,14 +772,14 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
 
   const base = {
     skin: new THREE.MeshLambertMaterial({ color: grey(0.55) }),
-    shoe: new THREE.MeshLambertMaterial({ color: grey(0.18) }),
+    shoe: cloth(grey(0.18)),
     ring: new THREE.MeshBasicMaterial({ color: grey(0.05) }),
     ball: new THREE.MeshLambertMaterial({ color: grey(0.5) }),
   };
   // home and away: light kit for the underpriced side, dark kit for the overpriced side
   const kits = {
-    under: { ...base, jersey: new THREE.MeshLambertMaterial({ color: grey(0.86) }), shorts: new THREE.MeshLambertMaterial({ color: grey(0.7) }), ink: '#111', number: new THREE.MeshBasicMaterial({ color: grey(0.04) }) },
-    over: { ...base, jersey: new THREE.MeshLambertMaterial({ color: grey(0.2) }), shorts: new THREE.MeshLambertMaterial({ color: grey(0.14) }), ink: '#f4f4f4', number: new THREE.MeshBasicMaterial({ color: grey(0.97) }) },
+    under: { ...base, jersey: cloth(grey(0.86)), shorts: cloth(grey(0.7)), ink: '#111', number: new THREE.MeshBasicMaterial({ color: grey(0.04) }) },
+    over: { ...base, jersey: cloth(grey(0.2)), shorts: cloth(grey(0.14)), ink: '#f4f4f4', number: new THREE.MeshBasicMaterial({ color: grey(0.97) }) },
   };
 
   const all = [teams.under || [], teams.over || []];
@@ -615,9 +825,17 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
 
   // bodies: a rigged human model per player, posed by bone; capsule figures if it cannot load
   let alive = true;
+  let dressed = null;
+  const putFace = (f) => {
+    if (!dressed || f.bust || f.facing || !faces?.has(f.pl.id)) return;
+    f.facing = true;
+    attachFace(f, faces.url(f.pl.id), dressed.GLTFLoader).catch(() => {}).finally(() => { f.facing = false; });
+  };
   loadBody().then((body) => {
     if (!alive) return;
-    for (const f of figures) dressFigure(f, body, kits[f.side], base);
+    for (const f of figures) { f.alive = () => alive; dressFigure(f, body, kits[f.side], base); }
+    dressed = body.real || body;
+    for (const f of figures) putFace(f);
   }).catch(() => {
     if (!alive) return;
     for (const f of figures) {
@@ -806,6 +1024,8 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
   return {
     view: (name) => { if (VIEWS[name]) apply(name); },
     select: (id) => { const f = figures.find((x) => x.pl.id === id); if (f !== selected) select(f || selected); },
+    // a face that has just been made: set it on its player
+    showFaces: () => { for (const f of figures) putFace(f); },
     destroy() {
       cancelAnimationFrame(raf);
       alive = false;

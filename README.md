@@ -193,6 +193,18 @@ script refuses to write the file if any original name or secret is still in it.
 In the browser, the trade engine (`lib/trade.mjs` has no dependencies) runs client-side, so mock
 offers and the builder work live. GitHub Actions publishes the demo to GitHub Pages on every push.
 
+### The players on the court
+
+Each figure on the home page is a realistic male base mesh (CC0, by Orange Juice Games, in
+`public/models`), reshaped to the player's listed height and weight and dressed in a kit cut from
+the body by skin weight. An invisible Mixamo X Bot holds the basketball stances and the idle
+breathing, and the visible body copies its bone rotations every frame.
+
+Faces are optional and stay on your machine. With a Meshy API key saved in Settings, the court
+offers to turn each player's ESPN headshot into a textured 3D bust (`lib/heads.mjs`). The busts are
+saved in `data/heads`, which is never committed, and only the local server serves them. The public
+demo has no server, so it shows no faces: real players' likenesses aren't mine to publish.
+
 ## Data and terms
 
 This is a personal tool. ESPN's fantasy API is unofficial, and the ranking and news sites are read

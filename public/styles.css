@@ -892,6 +892,8 @@ body[data-page="rankings"] main { max-width: 1180px; }
 .court-seg button.on { background: var(--accent); color: var(--on-accent); }
 .court-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .court-hint { font-size: 12.5px; color: var(--muted); font-style: italic; }
+.court-faces { font-size: 12.5px; color: var(--muted); max-width: 34ch; }
+.court-faces .btn.link { font-size: 12.5px; padding: 0; }
 .court-brand { position: absolute; left: clamp(16px, 4vw, 56px); bottom: clamp(18px, 5vh, 52px); pointer-events: none; }
 .court-brand p { font-size: clamp(15px, 1.4vw, 19px); margin-top: 8px; }
 body.demo[data-page="home"] .court-brand { bottom: calc(clamp(18px, 5vh, 52px) + 44px); }

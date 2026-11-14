@@ -293,6 +293,7 @@ function renderHome(app) {
             <button type="button" data-view="over">Overpriced</button><button type="button" data-view="court" class="on">Both sides</button><button type="button" data-view="under">Underpriced</button>
           </div>
           <p class="court-hint">${innerWidth < 760 ? 'Scroll to walk the court. Swipe sideways to turn it, tap a player.' : 'Scroll to walk the court. Drag to turn it, click a player.'}</p>
+          <p class="court-faces" id="court-faces" hidden></p>
         </div>
         <aside class="jumbotron" id="court-panel" aria-live="polite">
           <div id="panel-day">
@@ -343,16 +344,42 @@ function renderHome(app) {
   };
   const seg = stage.querySelectorAll('[data-view]');
   // the floor lettering is drawn in Bodoni Moda, so wait for the font
-  Promise.all([import('./stage.js'), document.fonts?.ready]).then(([{ mountStage }]) => {
+  // Faces are made and kept on this computer only (never in the demo): ask the server which exist.
+  const faceInfo = DEMO ? Promise.resolve(null) : fetch('/api/heads').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  Promise.all([import('./stage.js'), faceInfo, document.fonts?.ready]).then(([{ mountStage }, heads]) => {
     if (!stage.isConnected) return;
+    const ready = new Set(heads?.ready || []);
+    const faces = heads ? { has: (id) => ready.has(id), url: (id) => `/heads/${id}.glb` } : null;
     const ctl = mountStage({
+      faces,
       canvas: $('#court'), labels: $('#col-labels'), section: stage, teams,
       avoid: () => [stage.querySelector('.court-ui'), $('#court-panel')].filter(Boolean).map((el) => el.getBoundingClientRect()),
       onSelect: showPlayer,
       onView: (name) => seg.forEach((b) => b.classList.toggle('on', b.dataset.view === name)),
     });
-    unmountStage = () => ctl.destroy();
+    unmountStage = () => { clearTimeout(facesTimer); ctl.destroy(); };
     seg.forEach((b) => { b.onclick = () => ctl.view(b.dataset.view); });
+    // offer to make the missing faces; then check back until they are all on the court
+    const courtIds = [...teams.under, ...teams.over].filter(Boolean).map((p) => p.id);
+    const facesEl = $('#court-faces');
+    let facesTimer = 0;
+    const showFaces = (st) => {
+      if (!st || !facesEl) return;
+      for (const id of st.ready || []) ready.add(id);
+      ctl.showFaces();
+      const missing = courtIds.filter((id) => !ready.has(id));
+      const busy = (st.pending || []).filter((j) => courtIds.includes(j.id));
+      const failed = (st.failed || []).filter((j) => courtIds.includes(j.id));
+      facesEl.hidden = !st.enabled || (!missing.length && !busy.length);
+      if (busy.length) {
+        facesEl.textContent = `Making faces: ${courtIds.length - missing.length} of ${courtIds.length} done`;
+        facesTimer = setTimeout(() => fetch('/api/heads').then((r) => r.json()).then(showFaces).catch(() => {}), 8000);
+      } else if (missing.length) {
+        facesEl.innerHTML = `<button type="button" class="btn link">Make 3D faces for ${missing.length} player${missing.length === 1 ? '' : 's'}</button> <span>with Meshy, kept on this computer${failed.length ? `. ${failed.length} failed: ${esc(failed[0].error)}` : ''}</span>`;
+        facesEl.querySelector('button').onclick = () => api('/api/heads', { ids: missing }).then(showFaces).catch((e) => { facesEl.textContent = e.message; });
+      }
+    };
+    showFaces(heads);
     stage.addEventListener('click', (e) => { if (e.target.closest('[data-court-close]')) ctl.select(null); });
   }).catch(() => stage.classList.add('no-webgl'));
   loadHomeOffer();
@@ -1149,6 +1176,12 @@ function renderSettings(app) {
           <div class="field"><label for="aiModel">Model</label><select id="aiModel" style="width:220px">${['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2'].map((m) => `<option ${s.aiModel === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
           <div><button class="btn primary">Save</button></div>
         </form></div></div>
+        <div class="panel"><header><h2>Player faces</h2><p>On this computer only</p></header><div class="body"><form class="form" id="f-faces">
+          <div class="field"><label for="meshyKey">Meshy API key ${s.hasMeshyKey ? '<span class="chip good">Saved</span>' : ''}</label>
+            <input id="meshyKey" type="password" placeholder="${s.hasMeshyKey ? 'Key saved (leave blank to keep)' : 'msy_…'}" autocomplete="off">
+            <span class="hint">With a key, the court offers to turn each player's ESPN headshot into a 3D face with Meshy (about 30 credits a player). Faces are saved in <code>data/heads</code> on this computer and are never part of the public demo or the repository.${s.hasMeshyKey ? ' <button type="button" class="btn link" id="clear-faces">Remove key</button>' : ''}</span></div>
+          <div><button class="btn primary">Save</button></div>
+        </form></div></div>
       </div>
 
       <div class="stack">
@@ -1188,6 +1221,8 @@ ${S.meta?.backtest ? accuracyPanel(S.meta.backtest, S.meta.live) : ''}
   $('#reset-scoring').onclick = () => save({ resetScoring: true });
   if ($('#clear-espn')) $('#clear-espn').onclick = () => save({ clear: ['espnS2', 'swid'] });
   if ($('#clear-ai')) $('#clear-ai').onclick = () => save({ clear: ['anthropicKey'] });
+  $('#f-faces').onsubmit = (e) => { e.preventDefault(); save({ meshyKey: $('#meshyKey').value }); };
+  if ($('#clear-faces')) $('#clear-faces').onclick = () => save({ clear: ['meshyKey'] });
   $('#add-roster').onchange = (e) => {
     const p = S.players.find((x) => x.name.toLowerCase() === e.target.value.trim().toLowerCase());
     if (p) save({ manualRoster: [...(s.manualRoster || []), p.id] });
