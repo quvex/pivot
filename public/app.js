@@ -543,7 +543,7 @@ function profileTable(t) {
     ['Projected FP/G', (p) => `${fmt(p.model.fpg)} ±${fmt(p.model.sd)}`],
     ['Last five games', (p) => fmt(p.form?.last5)],
     ['Season so far', (p) => (p.s.season ? `${fmt(p.s.season.fp)} in ${p.s.season.gp} gp` : '–')],
-    ['Usual range (20th–80th pct)', (p) => (p.form ? `${fmt(p.form.floor, 0)}–${fmt(p.form.ceil, 0)}` : '–')],
+    ['Usual range (20th to 80th percentile)', (p) => (p.form ? `${fmt(p.form.floor, 0)} to ${fmt(p.form.ceil, 0)}` : '–')],
     ['Expected minutes', (p) => fmt(p.model.min)],
     ['Started (last 10)', (p) => (p.form ? `${p.form.starts}%` : '–')],
     ['Expected games left', (p) => `${fmt(p.avail.games, 0)} (${Math.round(p.avail.durability * 100)}% durability)`],
@@ -896,7 +896,7 @@ function renderNews(app) {
           ${n.headline ? `<p class="txt">${esc(n.headline)}</p>` : ''}
           ${n.text ? `<p class="more">${esc(n.text)}</p>` : ''}
           ${n.ai || n.lines.length ? `<div class="out"><div class="lbl">For your league</div><ul>${n.ai ? `<li>${esc(n.ai)}</li>` : n.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>` : ''}
-        </article>`).join('') || '<div class="panel"><div class="empty">No news in this view. Try “Everything”.</div></div>'}</div>
+        </article>`).join('') || '<div class="panel"><div class="empty">No news in this view. Try "Everything".</div></div>'}</div>
       </div>
       <div class="panel"><header><h2>League headlines</h2><p>ESPN</p></header>
         ${S.headlines.map((h) => `<a class="headline" href="${esc(/^https:\/\//.test(h.url) ? h.url : '#')}" target="_blank" rel="noopener noreferrer">${esc(h.headline)}<div class="muted" style="font-size:12px">${timeAgo(h.time)}</div></a>`).join('') || `<div class="empty">${DEMO ? 'Headlines are left out of the public demo.' : 'No headlines.'}</div>`}</div>
@@ -985,7 +985,7 @@ function renderSettings(app) {
 
 ${S.meta?.backtest ? accuracyPanel(S.meta.backtest, S.meta.live) : ''}
         <div class="panel"><header><h2>Daily update</h2><p>${S.ready ? `Last run ${esc(new Date(S.meta.refreshedAt).toLocaleString())}` : 'Never run'}</p></header>
-          <div class="body"><form class="form" id="f-hour"><div class="field"><label for="refreshHour">Update once a day after this hour (0–23)</label>
+          <div class="body"><form class="form" id="f-hour"><div class="field"><label for="refreshHour">Update once a day after this hour (0 to 23)</label>
             <div style="display:flex;gap:8px"><input id="refreshHour" type="number" min="0" max="23" value="${esc(s.refreshHour)}" style="width:90px"><button class="btn">Save</button></div>
             <span class="hint">Runs while the app is running. For updates when it is closed, schedule <code>npm run refresh</code>.</span></div></form></div>
           ${S.ready ? S.meta.status.map((st) => `<div class="src-row"><span><span class="dot ${st.ok ? '' : 'off'}"></span>${esc(st.label)}</span><span class="muted">${esc(st.detail)}</span></div>`).join('') : ''}
@@ -1026,7 +1026,7 @@ ${S.meta?.backtest ? accuracyPanel(S.meta.backtest, S.meta.live) : ''}
 
 // How the projection model did on past seasons it was not tuned on, and how it is doing live.
 function accuracyPanel(bt, live) {
-  const ci = (x) => `<span class="ci">${x.lo.toFixed(2)}–${x.hi.toFixed(2)}</span>`;
+  const ci = (x) => `<span class="ci">${x.lo.toFixed(2)} to ${x.hi.toFixed(2)}</span>`;
   const signedD = (d) => `${d.diff >= 0 ? '+' : '−'}${Math.abs(d.diff).toFixed(2)}`;
   const folds = bt.folds || [];
   const pooled = bt.pooled;

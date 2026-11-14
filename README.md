@@ -1,117 +1,135 @@
 # Pivot
 
-A decision tool for one ESPN fantasy basketball **points** league. Every morning it pulls stats,
-rankings, schedules, injuries and news from ten sources, projects every player for the rest of the
-season, and turns that into the day's decisions: who to start, who to add, and which trades to make,
-each with the reasoning behind it.
+I built Pivot for my own ESPN fantasy basketball league. Every morning it pulls stats, rankings,
+schedules, injuries and news from ten sources, projects each player for the rest of the season, and
+works out the day's decisions: who to start, who to pick up, and which trades are worth making. Every
+suggestion comes with the reasons behind it.
 
-The projection model is tested the honest way: on three past NBA seasons, each scored by a version
-tuned only on earlier seasons, with error ranges, an ablation of every piece, and a live track record.
+It works with any ESPN points league, season-long or head-to-head. Category leagues run too, but with
+a stand-in (see below).
 
-**[Open the live demo](https://quvex.github.io/pivot/)**: a frozen snapshot of one real league, with team names changed. Nothing to install; the trade tool runs in your browser.
+[Live demo](https://quvex.github.io/pivot/). It runs on a frozen snapshot of a real league with the
+team names changed, and there's nothing to install. The trade tool runs in your browser, so you can
+draft offers against that league.
 
 <!-- Add a screenshot or short GIF of the front page and the trade builder here: docs/screenshot.png -->
 
-## What it does
+## Pages
 
-| Page | What you get |
+| Page | What it shows |
 |---|---|
-| **Home** | Your standing, today's three most important moves, the players the market misprices most, and the best trade on the table |
-| **This week** | Day-by-day best legal lineup with injury and return-date odds, games-cap pacing, and a cap line for when to sit a player |
-| **Rankings** | Five ranking desks side by side with Pivot's own projection |
-| **Trades** | Mock offers for any player or team, plus a builder for your own. Every offer comes with its argument, a for-and-against breakdown and charts |
-| **Waivers** | Best available players matched against your weakest roster spots |
-| **News** | Three days of player news ranked by how much it matters to your team, with an optional LLM-written briefing |
+| Home | Your standing, the three things to do today, the players the market misprices most, and the best trade available |
+| This week | Your best legal lineup for each day, with injury and return-date odds. Games-cap pacing in capped leagues, and the current matchup with a win probability in head-to-head ones |
+| Rankings | Five ranking sites side by side with Pivot's own projection |
+| Trades | Mock offers for any player or team, and a builder for your own. Each offer gets a written case for and against, plus charts |
+| Waivers | The best free agents, matched against the weakest players on your roster |
+| News | The last three days of player news, sorted by how much each item matters to your team, with an optional briefing written by an LLM |
 
-## Projection accuracy
+## How accurate the projections are
 
-`npm run backtest` replays past seasons day by day. At 13 checkpoints through each season it asks the
-model for every relevant player's rest-of-season fantasy points per game, using only what was known
-that day, then compares with what the player actually averaged afterwards.
+`npm run backtest` replays past seasons a day at a time. At 13 points in each season it asks the
+model for every relevant player's fantasy points per game over the rest of the season, using only
+what was known that day. Then it checks what the player actually averaged.
 
-**Rolling-origin evaluation.** Each test season is scored by a model tuned only on earlier seasons,
-so nothing from the future leaks in. Figures are the mean absolute error in FP/G (lower is better).
-The ranges are 95% intervals from a bootstrap that resamples whole players, because one player's
-projections across a season are not independent.
+Each test season is scored by a model tuned only on the seasons before it, so nothing from the future
+leaks in. The numbers below are mean absolute error in FP/G, where lower is better. The ranges in
+brackets are 95% intervals from a bootstrap that resamples whole players, since one player's
+projections across a season aren't independent of each other.
 
 | Test season | Tuned on | Pivot | Season average | Previous model | Gain over season average |
 |---|---|---|---|---|---|
-| 2023-24 | 2021-22 | **4.06** (3.76–4.37) | 4.68 | 4.12 | 13% |
-| 2024-25 | 2021-22, 2023-24 | **3.79** (3.55–4.04) | 4.34 | 3.89 | 13% |
-| 2025-26 | 2021-22, 2023-24, 2024-25 | **3.87** (3.64–4.10) | 4.37 | 3.99 | 11% |
+| 2023-24 | 2021-22 | 4.06 (3.76 to 4.37) | 4.68 | 4.12 | 13% |
+| 2024-25 | 2021-22, 2023-24 | 3.79 (3.55 to 4.04) | 4.34 | 3.89 | 13% |
+| 2025-26 | 2021-22, 2023-24, 2024-25 | 3.87 (3.64 to 4.10) | 4.37 | 3.99 | 11% |
 
-All three seasons together (11,791 projections of 1,063 player-seasons):
+Pooled over all three seasons (11,791 projections of 1,063 player-seasons):
 
 | Method | MAE | 95% range | Worse than Pivot by |
 |---|---|---|---|
-| **Pivot model** | **3.90** | 3.76–4.06 | |
-| Previous version of this model | 4.00 | 3.84–4.16 | 0.10 (0.06–0.14) |
-| Season average to date | 4.46 | 4.28–4.65 | 0.56 (0.44–0.68) |
-| Preseason projection | 5.26 | 5.02–5.52 | 1.36 (1.20–1.56) |
-| Last 15 days | 5.74 | 5.61–5.88 | 1.84 (1.70–1.98) |
+| Pivot | 3.90 | 3.76 to 4.06 | |
+| Previous version of the model | 4.00 | 3.84 to 4.16 | 0.10 (0.06 to 0.14) |
+| Season average to date | 4.46 | 4.28 to 4.65 | 0.56 (0.44 to 0.68) |
+| Preseason projection | 5.26 | 5.02 to 5.52 | 1.36 (1.20 to 1.56) |
+| Last 15 days | 5.74 | 5.61 to 5.88 | 1.84 (1.70 to 1.98) |
 
-The gap to the season average, the number most fantasy players go by, is consistent across all
-three seasons. The gain over the previous version of this model is real but small: 0.10 FP/G, and the
-interval stays above zero.
+The season average is the number most fantasy players go by, and Pivot beats it by a similar margin
+in all three seasons. The improvement over my earlier version of the model is real but small: 0.10
+FP/G, with an interval that stays above zero.
 
-2022-23 is not used, for tuning or testing, because ESPN's stored "preseason" projections for that
-season were revised mid-season, which would leak the answer.
+I left 2022-23 out of both tuning and testing. ESPN's stored "preseason" projections for that season
+were revised partway through, so using them would leak the answer.
 
-### Ablation: what each piece is worth
+### What each piece is worth
 
-The full model with one piece taken away, pooled over the three test seasons. A positive change means
-the model gets worse without it.
+This is the full model with one piece removed at a time, pooled over the three test seasons. A
+positive change means the model does worse without that piece.
 
 | Piece removed | MAE | Change (95% range) | Verdict |
 |---|---|---|---|
-| Preseason prior | 4.25 | +0.35 (0.25 to 0.44) | The biggest contributor |
-| Minutes × efficiency split (one fantasy-points series instead, re-tuned) | 3.97 | +0.07 (0.04 to 0.11) | Helps |
+| Preseason prior | 4.25 | +0.35 (0.25 to 0.44) | Matters most |
+| Minutes × efficiency split (replaced by one re-tuned fantasy-points series) | 3.97 | +0.07 (0.04 to 0.11) | Helps |
 | Recency weighting | 3.97 | +0.07 (0.02 to 0.12) | Helps |
-| Top-end trim for stars | 3.91 | +0.01 (0.00 to 0.01) | Marginal |
-| Shooting-luck correction | 3.91 | +0.00 (−0.02 to 0.03) | No measurable effect |
+| Top-end trim for stars | 3.91 | +0.01 (0.00 to 0.01) | Barely matters |
+| Shooting-luck correction | 3.91 | +0.00 (-0.02 to 0.03) | No measurable effect |
 
-The shooting-luck correction is kept because it is cheap and harmless, but on this evidence it does
-not earn its place. The live app also blends in FantasyPros' rest-of-season projection; there is no
-history of that feed to replay, so it is not part of these numbers.
+I kept the shooting-luck correction because it costs nothing, but on this evidence it doesn't earn
+its place. The live app also blends in FantasyPros' rest-of-season projection. There's no history of
+that feed to replay, so it isn't in these numbers.
 
 ### Live track record
 
-Backtests can be tuned, however carefully. So every daily update also saves its projections, and once
-a snapshot is a week old each projection is scored against what the player has averaged since, next
-to his season average on the day the projection was made. Results appear under Settings → Projection
-accuracy as the season goes on. Logging started on 14 November 2026.
+A backtest can always be tuned a little too well, so the app also keeps score in real time. Every
+daily update saves its projections. Once a snapshot is a week old, each projection is compared with
+what the player has averaged since, next to his season average on the day the projection was made.
+The results show up under Settings, in Projection accuracy. Logging started on 14 November 2026.
 
-Known weak spot: the model runs about 1.5 to 2.5 FP/G high for the very best players (predicted 51.4,
-actual 49.1 in the top band of 2025-26), mostly because stars get rested and shut down late in
-seasons. The top-end trim corrects only a little of this.
+One known weak spot: for the very best players the model runs 1.5 to 2.5 FP/G high (51.4 predicted
+against 49.1 actual in the top band of 2025-26). Most of that is stars being rested or shut down late
+in the season, and the top-end trim only corrects a little of it.
 
 ### How the projection works
 
-Fantasy points per game = minutes × points per minute, and the two behave differently. Minutes follow
-role and change fast; per-minute production is a slow-moving skill. So `lib/estimator.mjs` estimates
-each from the game log with its own recency half-life (28 days for minutes, 90 for efficiency), shrinks
-both toward a preseason prior that fades as games pile up, corrects for shooting luck, then blends in
-FantasyPros' rest-of-season projection. The half-lives, prior strengths and corrections are fitted by
-coordinate descent in `lib/backtest.mjs` and stored in `lib/params.json`.
+Fantasy points per game is minutes times points per minute, and the two behave differently. Minutes
+follow a player's role and can change in a week. Per-minute production is a skill and moves slowly.
+So `lib/estimator.mjs` estimates each one separately from the game log, with its own recency
+half-life (28 days for minutes, 90 for efficiency). Both are pulled toward a preseason prior that
+fades as games pile up. After a shooting-luck correction, the result is blended with FantasyPros'
+rest-of-season projection. The half-lives, prior strengths and corrections are fitted by coordinate
+descent in `lib/backtest.mjs` and saved in `lib/params.json`.
 
-On top of that, `lib/model.mjs` redistributes production from injured players to teammates, estimates
-games remaining from injury reports and a durability model (also fitted on past seasons), and converts
-everything to value above replacement. In a games-capped league, replacement level comes from the
-league's remaining games, not its roster spots.
+`lib/model.mjs` then hands production from injured players to their teammates. It estimates how many
+games each player has left from the injury report and a durability model, which is also fitted on
+past seasons. Everything is converted to value above replacement. In a league with a games cap,
+replacement level comes from the games left to play across the league rather than from roster spots.
 
 ## Trade engine
 
-`lib/trade.mjs` judges a trade by what it does to your **projected final total**, not by adding up
-points per game: it re-fills your remaining games cap with the new roster, forces drops or adds the
-best free agent so roster sizes stay legal, and does the same for the other team. It also models how
-the other manager will see the deal, using recent box scores, expert rank and draft position, plus a
-premium for giving up the best player in the deal. That gives an acceptance estimate.
+`lib/trade.mjs` scores a trade by its effect on your projected final total. Adding up points per game
+would miss most of what matters. The engine refills your remaining games with the new roster, makes
+the drops or free-agent pickups needed to keep both rosters legal, and does the same for the other
+team.
 
-Each trade gets a short argument (the number, the best reason, the main risk) and a full breakdown
-across production, form, role and minutes, availability, schedule, price, roster fit and the other
-side. Confidence compares the edge with the model's measured error on those players.
+It also guesses how the other manager will see the deal. People judge trades on recent box scores,
+expert rankings and where a player was drafted, and they want a premium for giving up the best
+player in the deal. That gives an acceptance estimate. It's a heuristic, since there's no data on
+real trade outcomes to test it against.
 
-The acceptance estimate is a heuristic. There is no data on real trade outcomes to test it against.
+Each trade gets a short summary (the number, the best reason to do it, the main risk) and a full
+breakdown covering production, form, role and minutes, availability, schedule, price, roster fit and
+the view from the other side. The confidence level compares the edge with the model's measured error
+on those players.
+
+## Leagues and formats
+
+On first run Pivot asks for your league link. If the league is private, it asks for the two ESPN
+cookies (`espn_s2` and `SWID`) that prove you're a member. Then you pick your team. A preview endpoint
+checks the league before anything is saved.
+
+Season-long points leagues get games-cap pacing and a cap line. Head-to-head points leagues get
+standings by record and a card for the current matchup. That card adds the score so far to each
+team's best lineup for the remaining days and turns the gap into a win probability using
+game-to-game variance. Category and roto leagues load fine, but Pivot only projects fantasy points,
+so it ranks players there on ESPN's default points scoring as a stand-in.
 
 ## Architecture
 
@@ -132,27 +150,27 @@ flowchart LR
   Server --> UI[public/<br>vanilla JS single-page app]
 ```
 
-- **No framework, one runtime dependency** (the Anthropic SDK, used only for the optional briefing).
-  The server is Node's `http` module, and the UI is plain JavaScript with hand-drawn SVG charts.
-- **Every source can fail on its own.** Each fetch is tracked, and a broken site shows up in Settings
-  and the status bar without stopping the update.
-- **Scrapers are split into fetch and parse.** The parsers are pure functions with unit tests; the live
-  sites are checked separately with `npm run check:sources`.
-- **Secrets stay local.** League cookies and API keys live in `data/settings.json` (owner-only
-  permissions, git-ignored), are never sent back to the browser, and go only to the service they
-  belong to. The server answers only requests addressed to localhost.
+There's no framework and one runtime dependency, the Anthropic SDK, which only the optional briefing
+uses. The server is Node's `http` module and the UI is plain JavaScript with SVG charts drawn by hand.
+
+Any source can fail without stopping the update. Each fetch is tracked, and a broken site shows up in
+Settings and in the status bar. The scrapers are split into a fetch and a parse step, so the parsers
+are pure functions with unit tests, and `npm run check:sources` checks the live sites separately.
+
+League cookies and API keys stay in `data/settings.json`, which is readable only by its owner and
+ignored by git. They're never sent back to the browser, and each one only goes to the service it
+belongs to. The server only answers requests addressed to localhost.
 
 ## Running it
 
-Requires Node 20+.
+You need Node 20 or later.
 
 ```bash
 npm install
 npm start               # http://localhost:5178
 ```
 
-Then open Settings and enter your ESPN league ID. A private league also needs your `espn_s2` and
-`SWID` cookies.
+The first page walks you through connecting your league.
 
 ```bash
 npm test                # unit tests (node:test)
@@ -166,19 +184,21 @@ npm run demo:build      # assemble the static demo in site/
 
 ### The public demo
 
-The demo is the same front end in a read-only mode. `demo:snapshot` builds the page state from a
-real refresh, then removes everything that is not ours to publish: team, owner and league names are
-replaced, news text and injury-report wording are dropped (Pivot's own outcome for each item stays),
-and only ESPN's projection rank and the combined consensus are kept from the ranking sources. The
-script refuses to write if any original name or secret is still present. In the browser, the trade
-engine (`lib/trade.mjs`, which has no dependencies) runs client-side, so mock offers and the builder
-work live. GitHub Actions publishes it to GitHub Pages on every push.
+The demo is the same front end running read-only. `demo:snapshot` builds the page state from a real
+refresh and then strips out anything that isn't mine to publish. Team, owner and league names are
+replaced. News text and injury-report wording are dropped, though Pivot's own take on each news item
+stays. From the ranking sites, only ESPN's projection rank and the combined consensus are kept. The
+script refuses to write the file if any original name or secret is still in it.
+
+In the browser, the trade engine (`lib/trade.mjs` has no dependencies) runs client-side, so mock
+offers and the builder work live. GitHub Actions publishes the demo to GitHub Pages on every push.
 
 ## Data and terms
 
 This is a personal tool. ESPN's fantasy API is unofficial, and the ranking and news sites are read
 from their public pages. Check each site's terms before running it anywhere public, and credit the
-sources if you publish anything built from them. No scraped data is committed to this repository.
+sources if you publish anything built from them. The repository contains no raw scraped pages or
+ranking lists.
 
 ## Project layout
 
@@ -189,7 +209,7 @@ lib/history.mjs         season-long game logs from ESPN
 lib/estimator.mjs       the per-game estimate shared by the live model and the backtest
 lib/backtest.mjs        tuning, rolling-origin evaluation, bootstrap intervals, ablation
 lib/livescore.mjs       scores saved daily projections against what happened since
-lib/model.mjs           projections, consensus, market value, signals, waivers, weekly plan
+lib/model.mjs           projections, consensus, market value, signals, waivers, weekly plan, matchup odds
 lib/trade.mjs           trade evaluation and mock offers (also runs in the browser)
 lib/ownership.mjs       who owns each player
 lib/state.mjs           the page state the UI renders
