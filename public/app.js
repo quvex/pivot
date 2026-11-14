@@ -12,6 +12,7 @@ const ui = {
   give: [], get: [],
   trade: { mode: 'offers', player: null, team: null, partner: null, res: null, loading: false, open: {}, custom: null, evaluating: false },
   home: { offer: undefined, loading: false },
+  onboard: { input: '', league: null, teamId: null, private: false, cookies: {}, busy: false, error: '' },
 };
 
 // ---------- demo mode ----------
@@ -44,7 +45,7 @@ async function api(path, body) {
   if (DEMO) return demoApi(path, body);
   const res = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   const json = await res.json();
-  if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+  if (!res.ok) { const err = new Error(json.error || `Request failed (${res.status})`); err.code = json.code; throw err; }
   return json;
 }
 
@@ -113,9 +114,15 @@ function render() {
   renderChrome();
   const tab = (location.hash || '#home').slice(1);
   const app = $('#app');
-  if (!S.ready && tab !== 'settings') {
-    app.innerHTML = `<div class="panel"><div class="empty">${S.job.running || polling ? 'Loading data for the first time…' : 'No data yet. Press Refresh to pull rankings and news.'}</div></div>`;
-    return;
+  if (tab !== 'settings' && !DEMO) {
+    const busy = S.job.running || polling;
+    const connected = S.settings.leagueId || (S.settings.manualRoster || []).length;
+    if (!connected) return renderOnboard(app);
+    if (busy && (!S.ready || (S.settings.leagueId && !S.league))) return renderSettingUp(app);
+    if (!S.ready) {
+      app.innerHTML = '<div class="panel"><div class="empty">No data yet. Press Refresh to pull rankings and news.</div></div>';
+      return;
+    }
   }
   ({ home: renderHome, week: renderWeek, rankings: renderRankings, trades: renderTrades, waivers: renderWaivers, news: renderNews, settings: renderSettings }[tab] || renderHome)(app);
 }
@@ -251,7 +258,14 @@ function renderHome(app) {
       <h1 class="hero-word" aria-label="Pivot">Pivot</h1>
       <div class="today">
         <p class="today-date">${esc(today)}${me ? ` · ${esc(me.name)}` : ''}</p>
-        ${me ? `<div class="board">
+        ${me && myMatchup(w) ? (() => { const m = myMatchup(w); const r = me.record; return `<div class="board">
+            <div><b>${r ? `${r.wins}-${r.losses}` : ordinal(me.rank)}</b><span>${ordinal(me.rank)} of ${w.teams.length}</span></div>
+            <div><b class="num">${m.me.projected.toLocaleString('en-US')}</b><span>vs ${esc(m.opp.name)} ${m.opp.projected.toLocaleString('en-US')}</span></div>
+            <div><b class="num">${Math.round(m.win * 100)}%</b><span>to win this week</span></div>
+          </div>
+          ${moves.length ? `<ol class="moves">${moves.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : '<p class="muted">Nothing needs action today.</p>'}
+          <a class="more" href="#week">See the matchup <span aria-hidden="true">→</span></a>`; })()
+        : me ? `<div class="board">
             <div><b>${ordinal(me.rank)}</b><span>of ${w.teams.length}</span></div>
             <div><b class="num">${me.points.toLocaleString('en-US')}</b><span>points</span></div>
             <div><b class="num">${me.rank === 1 ? 'Lead' : `−${gap.toLocaleString('en-US')}`}</b><span>${me.rank === 1 ? `by ${(me.points - w.teams[1].points).toLocaleString('en-US')}` : `to ${esc(leader.name)}`}</span></div>
@@ -270,7 +284,7 @@ function renderHome(app) {
           <td class="strong">${fmt(p.model.fpg)}</td><td>${fmt(p.market.recent)}</td><td class="${d >= 0 ? 'up' : 'down'}">${TRI(d >= 0)} ${fmt(Math.abs(d))}</td></tr>`; }).join('') || '<tr><td colspan="5" class="empty">Nothing stands out today.</td></tr>'}</tbody></table></div></section>
       <div class="home-side">
         ${w ? `<section class="panel"><header><h2>Standings</h2><p><a href="#week">Full outlook</a></p></header><div class="table-wrap"><table class="standings">
-          <tbody>${w.teams.map((t) => `<tr class="${t.mine ? 'me' : ''}" style="cursor:default"><td class="rank">${t.rank}</td><td class="l">${esc(t.name)}</td><td class="strong">${t.points.toLocaleString('en-US')}</td><td class="muted">${t.rank === 1 ? '' : `−${(leader.points - t.points).toLocaleString('en-US')}`}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
+          <tbody>${w.teams.map((t) => `<tr class="${t.mine ? 'me' : ''}" style="cursor:default"><td class="rank">${t.rank}</td><td class="l">${esc(t.name)}</td>${t.record && w.kind !== 'season' ? `<td class="strong">${t.record.wins}-${t.record.losses}${t.record.ties ? `-${t.record.ties}` : ''}</td><td class="muted">${t.pointsFor.toLocaleString('en-US')}</td>` : `<td class="strong">${t.points.toLocaleString('en-US')}</td><td class="muted">${t.rank === 1 ? '' : `−${(leader.points - t.points).toLocaleString('en-US')}`}</td>`}</tr>`).join('')}</tbody></table></div></section>` : ''}
         <section class="panel"><header><h2>Best offer on the table</h2><p><a href="#trades">All offers</a></p></header><div class="body" id="home-offer">${homeOffer()}</div></section>
       </div>
     </div>`;
@@ -281,6 +295,129 @@ function renderHome(app) {
     const t = ui.home.offer;
     openBuilder({ give: t.give, get: t.get, partner: t.partner?.id ?? null });
   };
+}
+
+// ---------- first run ----------
+// Shown until a league is connected (or players are added by hand). One card over the landscape:
+// find the league, unlock it if it is private, pick your team, start.
+function renderOnboard(app) {
+  const o = ui.onboard;
+  const lg = o.league;
+  const title = lg ? 'Which team is yours?' : o.private ? 'This league is private' : 'Connect your ESPN league';
+  app.innerHTML = `
+    <section class="hero onboard">
+      <canvas id="terrain" aria-hidden="true"></canvas>
+      <h1 class="hero-word" aria-label="Pivot">Pivot</h1>
+      <div class="today ob">
+        <p class="today-date">Set up · about a minute</p>
+        <h2 class="ob-title">${title}</h2>
+        ${!lg ? `<form id="ob-find" class="ob-form" novalidate>
+            <label for="ob-id">League link or ID</label>
+            <input id="ob-id" value="${esc(o.input)}" placeholder="fantasy.espn.com/basketball/league?leagueId=…" autocomplete="off" spellcheck="false">
+            ${o.private ? `<p class="ob-help">ESPN only shows private leagues to their members. While signed in to espn.com, open your browser's developer tools, then Application → Cookies → espn.com, and copy these two values. They stay on this computer and are only ever sent to ESPN.</p>
+              <label for="ob-s2">espn_s2</label><input id="ob-s2" type="password" autocomplete="off">
+              <label for="ob-swid">SWID</label><input id="ob-swid" type="password" autocomplete="off" placeholder="{XXXXXXXX-XXXX-…}">`
+            : '<p class="ob-help">Open your league on fantasy.espn.com and copy the address from the browser bar.</p>'}
+            ${o.error ? `<p class="ob-err" role="alert">${esc(o.error)}</p>` : ''}
+            <div class="ob-actions"><button class="btn primary"${o.busy ? ' aria-busy="true"' : ''}>${o.busy ? 'Looking it up…' : o.private ? 'Try again' : 'Find league'}</button></div>
+          </form>`
+        : `<p class="ob-league"><b>${esc(lg.name)}</b><span>${esc(lg.format.label)} · ${lg.teams.length} teams</span></p>
+          ${lg.format.supported ? '' : '<p class="ob-warn">Pivot is built for points leagues. It still works here, but ranks players and trades on ESPN\'s default points scoring as a stand-in for category value.</p>'}
+          <div class="ob-teams" role="radiogroup" aria-label="Your team">${lg.teams.map((t) => `<button type="button" role="radio" aria-checked="${o.teamId === t.id}" class="ob-team ${o.teamId === t.id ? 'on' : ''}" data-team="${t.id}"><b>${esc(t.name)}</b>${t.owner ? `<span>${esc(t.owner)}</span>` : ''}</button>`).join('')}</div>
+          ${o.error ? `<p class="ob-err" role="alert">${esc(o.error)}</p>` : ''}
+          <div class="ob-actions"><button type="button" class="btn primary" id="ob-go"${o.busy ? ' aria-busy="true"' : ''}>${o.busy ? 'Starting…' : 'Start'}</button><button type="button" class="btn link" id="ob-back">Use a different league</button></div>`}
+        <p class="ob-alt">No ESPN league? <a href="#settings">Pick your players by hand</a>.</p>
+      </div>
+    </section>`;
+  startTerrain($('#terrain'));
+  const again = () => renderOnboard(app);
+
+  const form = $('#ob-find');
+  if (form) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      if (o.busy) return;
+      o.input = $('#ob-id').value.trim();
+      if (!o.input) { o.error = 'Paste your league link or ID first.'; return again(); }
+      const cookies = o.private ? { espnS2: $('#ob-s2').value.trim(), swid: $('#ob-swid').value.trim() } : {};
+      if (o.private && (!cookies.espnS2 || !cookies.swid)) { o.error = 'Both cookies are needed for a private league.'; return again(); }
+      o.busy = true; o.error = ''; again();
+      try {
+        const { league } = await api('/api/league/preview', { leagueId: o.input, ...cookies });
+        o.league = league;
+        o.cookies = cookies;
+        o.teamId = league.teams.find((t) => t.isMine)?.id ?? null;
+      } catch (err) {
+        if (err.code === 'private') { o.error = o.private ? err.message : ''; o.private = true; } else o.error = err.message;
+      }
+      o.busy = false; again();
+      $('#ob-id')?.focus();
+    };
+    if (!o.input) $('#ob-id').focus();
+    return;
+  }
+  app.querySelector('.ob-teams').onclick = (e) => {
+    const b = e.target.closest('[data-team]');
+    if (b) { o.teamId = +b.dataset.team; o.error = ''; again(); }
+  };
+  $('#ob-back').onclick = () => { Object.assign(o, { league: null, teamId: null, error: '' }); again(); };
+  $('#ob-go').onclick = async () => {
+    if (o.busy) return;
+    if (o.teamId == null) { o.error = 'Pick your team first.'; return again(); }
+    o.busy = true; o.error = ''; again();
+    try {
+      await api('/api/settings', { leagueId: o.league.id, teamId: o.teamId, ...o.cookies });
+      Object.assign(o, { busy: false, league: null, cookies: {} });
+      await load();
+    } catch (err) { o.busy = false; o.error = err.message; again(); }
+  };
+}
+
+function renderSettingUp(app) {
+  app.innerHTML = `
+    <section class="hero onboard">
+      <canvas id="terrain" aria-hidden="true"></canvas>
+      <h1 class="hero-word" aria-label="Pivot">Pivot</h1>
+      <div class="today ob" aria-busy="true">
+        <p class="today-date">Setting up</p>
+        <h2 class="ob-title">Pulling your league</h2>
+        <p class="ob-help">Rosters, standings, scoring, a season of box scores and ten outside sources. This takes about 20 seconds.</p>
+        <div class="ob-progress"><i></i></div>
+      </div>
+    </section>`;
+  startTerrain($('#terrain'));
+}
+
+// ---------- head-to-head ----------
+function myMatchup(w) {
+  const id = S.myTeam?.id;
+  const g = w?.h2h?.games.find((x) => x.home.id === id || x.away.id === id);
+  if (!g) return null;
+  const me = g.home.id === id ? g.home : g.away;
+  return { me, opp: me === g.home ? g.away : g.home, win: me === g.home ? g.homeWin : 1 - g.homeWin };
+}
+
+function matchupPanel(w) {
+  const m = myMatchup(w);
+  if (!m) return '';
+  const day = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const side = (t, cls) => `<div class="mu-side ${cls}"><span class="mu-name">${esc(t.name)}</span><b class="num">${t.projected.toLocaleString('en-US')}</b>
+    <span class="mu-sub">${t.points.toLocaleString('en-US')} so far · ${t.starts} start${t.starts === 1 ? '' : 's'} left${t.open ? ` · ${t.open} empty slot${t.open === 1 ? '' : 's'}` : ''}</span></div>`;
+  const pct = Math.round(m.win * 100);
+  return `<div class="panel"><header><h2>Matchup ${w.h2h.period}</h2><p>${w.h2h.from ? `${day(w.h2h.from)} to ${day(w.h2h.to)} · ` : ''}projected final score</p></header><div class="body">
+    <div class="mu">${side(m.me, 'me')}<div class="mu-mid"><b>${pct}%</b><span>chance to win</span></div>${side(m.opp, 'opp')}</div>
+    <div class="mu-bar" role="img" aria-label="${pct}% chance to win"><i style="width:${pct}%"></i></div>
+    <p class="chart-note">Score so far plus each team's best legal lineup for every remaining day. The chance allows for game-to-game swings and injury odds.</p>
+  </div></div>`;
+}
+
+function h2hStandings(w) {
+  const rec = (r) => (r ? `${r.wins}-${r.losses}${r.ties ? `-${r.ties}` : ''}` : '–');
+  return `<div class="panel"><header><h2>Standings</h2><p>${esc(w.formatLabel)}</p></header><div class="table-wrap"><table>
+    <thead><tr>${['#', 'Team', 'Record', 'Points for', ...(w.h2h ? ['This matchup', 'Win chance'] : [])].map((h, i) => `<th class="${i === 1 ? 'l' : ''}" style="cursor:default">${h}</th>`).join('')}</tr></thead>
+    <tbody>${w.teams.map((t) => `<tr style="cursor:default"><td class="rank">${t.rank}</td><td class="l">${t.mine ? `<b>${esc(t.name)}</b> <span class="chip mine">You</span>` : esc(t.name)}</td>
+      <td class="strong">${rec(t.record)}</td><td>${t.pointsFor.toLocaleString('en-US')}</td>
+      ${w.h2h ? `<td>${t.matchup ? `${t.matchup.projected.toLocaleString('en-US')} <span class="muted">vs ${esc(t.matchup.opp)}</span>` : '–'}</td><td class="${t.matchup ? (t.matchup.win >= 0.5 ? 'up' : 'down') : 'muted'}">${t.matchup ? `${Math.round(t.matchup.win * 100)}%` : '–'}</td>` : ''}</tr>`).join('')}</tbody></table></div></div>`;
 }
 
 // ---------- rankings ----------
@@ -673,11 +810,17 @@ function renderWeek(app) {
         <td class="grp">${r.games[wk]}</td><td class="strong">${fmt(r.pts[wk], 0)}</td></tr>`; }).join('')}
         <tr style="cursor:default"><td class="l strong">Day total</td>${days.map((d) => `<td class="strong">${d.total}</td>`).join('')}<td class="grp"></td><td class="strong">${total}</td></tr></tbody></table></div></div>`;
   };
+  const intro = w.kind === 'h2h' ? 'Head-to-head points: each week you play one team. The matchup below adds the score so far to your best legal lineup for every remaining day, with injuries and return dates applied.'
+    : w.kind === 'categories' ? `${w.formatLabel}. Pivot projects fantasy points, so this page uses ESPN's default points scoring as a stand-in for category value.`
+    : w.capped ? `Your league is season-long total points with a games cap (${w.capTotal} starts per team), not head-to-head. You gain ground each week by getting more points out of every game you use, not by playing more games.`
+    : 'Projected points for each team from today through next week, with injuries and return dates applied.';
   app.innerHTML = `
     <div class="page-head"><div><h1>This week</h1>
-      <p>${w.capped ? `Your league is season-long total points with a games cap (${w.capTotal} starts per team), not head-to-head. You gain ground each week by getting more points out of every game you use, not by playing more games.` : 'Projected points for each team from today through next week, with injuries and return dates applied.'} Days are US Eastern.</p></div></div>
+      <p>${esc(intro)} Days are US Eastern.</p></div></div>
     <div class="stack">
+      ${matchupPanel(w)}
       ${my ? `<div class="panel"><header><h2>What to do</h2><p>${esc(my.name)}${my.capLine ? ` · cap line ${fmt(my.capLine)} FP/G` : ''}</p></header><div class="brief">${my.advice.length ? `<ol>${my.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ol>` : '<span class="muted">Nothing needs action.</span>'}</div></div>` : `<div class="callout"><span>Choose your team in Settings to get a plan for your roster.</span><a class="btn primary" href="#settings">Choose team</a></div>`}
+      ${w.kind === 'h2h' || w.kind === 'categories' ? h2hStandings(w) : `
       <div class="panel"><header><h2>Standings outlook</h2><p>${w.seasonPct}% of the NBA season played</p></header><div class="table-wrap"><table>
         <thead><tr>${['#', 'Team', 'Points', 'Behind', ...(w.capped ? ['Games used', 'Pts / game', 'Pace'] : []), 'Rest of week', 'Next week', ...(w.capped ? ['Cap line', 'Projected final'] : [])].map((h, i) => `<th class="${i === 1 ? 'l' : ''}" style="cursor:default">${h}</th>`).join('')}</tr></thead>
         <tbody>${w.teams.map((t) => `<tr style="cursor:default"><td class="rank">${t.rank}</td><td class="l">${t.mine ? `<b>${esc(t.name)}</b> <span class="chip mine">You</span>` : esc(t.name)}</td>
@@ -687,6 +830,7 @@ function renderWeek(app) {
           ${w.capped ? `<td>${fmt(t.capLine)}</td><td class="strong">${t.projected}</td>` : ''}</tr>`).join('')}</tbody></table></div>
         ${w.capped ? '<div class="body muted" style="font-size:12px;border-top:1px solid var(--line)">Cap line: the FP/G of the last game that fits under a team\'s cap if its best players\' games go first. Starting anyone below it gives up points. Projected final fills each team\'s remaining games with its current roster, and any shortfall at replacement level.</div>' : ''}
       </div>
+      `}
       ${my ? `${weekBlock(0, 'Rest of this week')}${weekBlock(1, 'Next week')}
       ${my.slots.length ? `<div class="panel"><header><h2>Games used by slot</h2><p>Each slot has its own cap</p></header><div class="body slots">${my.slots.map((s) => `<div class="slot"><div class="row"><b>${esc(s.label)}</b><span class="num ${s.used - s.even >= 3 ? 'down' : 'muted'}">${s.used} / ${s.limit}${s.used - s.even >= 3 ? ` · ${s.used - s.even} ahead` : ''}</span></div>
         <div class="bar"><i style="width:${Math.min(100, (s.used / s.limit) * 100)}%"></i><u style="left:${Math.min(100, (s.even / s.limit) * 100)}%" title="Even pace"></u></div></div>`).join('')}</div></div>` : ''}` : ''}

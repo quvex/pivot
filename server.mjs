@@ -7,6 +7,7 @@ import { refresh } from './lib/refresh.mjs';
 import { ownership } from './lib/ownership.mjs';
 import { tradeContext, evaluateTrade, mockOffers } from './lib/trade.mjs';
 import { buildState } from './lib/state.mjs';
+import { fetchEspnLeague } from './lib/sources.mjs';
 
 const PORT = Number(process.env.PORT) || 5178;
 const PUBLIC = path.join(ROOT, 'public');
@@ -15,12 +16,17 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 let data = loadLatest();
 let job = { running: false, error: null, startedAt: null };
 
+// A refresh asked for while one is running (say, a league saved during the first-run pull) is
+// queued, so the new settings are always picked up.
+let queued = false;
 function startRefresh() {
-  if (job.running) return;
+  if (job.running) { queued = true; return; }
+  queued = false;
   job = { running: true, error: null, startedAt: Date.now() };
   refresh()
     .then((d) => { data = d; job = { running: false, error: null, startedAt: null }; })
-    .catch((e) => { console.error('Refresh failed:', e.message); job = { running: false, error: e.message, startedAt: null }; });
+    .catch((e) => { console.error('Refresh failed:', e.message); job = { running: false, error: e.message, startedAt: null }; })
+    .finally(() => { if (queued) startRefresh(); });
 }
 
 // Daily update: once per calendar day after the configured hour, checked every 20 minutes.
@@ -97,6 +103,26 @@ const server = http.createServer(async (req, res) => {
         if (!String(req.headers['content-type'] || '').includes('application/json')) return send(415, { error: 'Expected JSON' });
         const body = await readBody(req);
         if (url.pathname === '/api/refresh') { startRefresh(); return send(202, { job }); }
+        if (url.pathname === '/api/league/preview') {
+          // Look a league up before saving it, so onboarding can show its name, format and teams.
+          const m = String(body.leagueId || '').match(/leagueId=(\d+)/) || String(body.leagueId || '').match(/^\s*(\d+)\s*$/);
+          if (!m) return send(400, { error: 'Paste your league link from fantasy.espn.com, or just the number after leagueId=.', code: 'bad_id' });
+          const cur = loadSettings();
+          const espnS2 = typeof body.espnS2 === 'string' && body.espnS2.trim() ? body.espnS2.trim() : cur.espnS2;
+          const swid = typeof body.swid === 'string' && body.swid.trim() ? body.swid.trim() : cur.swid;
+          try {
+            const lg = await fetchEspnLeague({ season: cur.season, leagueId: m[1], espnS2, swid });
+            return send(200, {
+              league: {
+                id: lg.id, name: lg.name, season: cur.season,
+                format: { kind: lg.format.kind, label: lg.format.label, supported: lg.format.supported },
+                teams: lg.teams.map((t) => ({ id: t.id, name: t.name, owner: t.owner, isMine: t.isMine, size: t.roster.length })),
+              },
+            });
+          } catch (e) {
+            return send(e.code === 'private' ? 403 : e.code === 'not_found' ? 404 : 502, { error: e.message, code: e.code || 'unreachable' });
+          }
+        }
         if (url.pathname === '/api/trade/evaluate') {
           if (!data) return send(409, { error: 'No data yet' });
           const ids = (v) => (Array.isArray(v) ? v.map(Number).filter(Number.isFinite).slice(0, 5) : []);
