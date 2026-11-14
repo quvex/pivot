@@ -147,7 +147,7 @@ function makePlayer(poseName, jersey, mats) {
     hands.push(hand);
   });
   root.traverse((o) => { if (o.isMesh && !o.material.transparent) o.castShadow = true; });
-  return { root, hands, ball: P.ball };
+  return { root, hands, head, ball: P.ball };
 }
 
 // ---------- the engraving pass ----------
@@ -211,10 +211,12 @@ function shot(p, aspect) {
 }
 
 // where players stand, relative to the hoop (x toward half court, z across)
-const SPOTS = [[6.9, 0], [5.6, -4.3], [5.6, 4.3], [1.4, -6.6], [1.4, 6.6], [4.6, -1.9], [4.6, 1.9], [1.3, -2.2]];
-const POSE_FOR = (pos, i) => (pos === 'C' || pos === 'PF' ? (i % 2 ? 'post' : 'defend') : pos === 'PG' ? 'dribble' : i % 3 === 0 ? 'set' : 'jumpshot');
+// PG brings it up top, the wings spot up, the four sets a screen at the elbow, the five posts on the block
+const SPOTS = { PG: [7.5, 0.6], SG: [5.6, 4.6], SF: [1.6, -6.5], PF: [4.7, -2.0], C: [1.25, 1.9] };
+const POSES_BY_SLOT = { PG: 'dribble', SG: 'jumpshot', SF: 'set', PF: 'defend', C: 'post' };
+const SLOT_NAMES = { PG: 'Point guard', SG: 'Shooting guard', SF: 'Small forward', PF: 'Power forward', C: 'Center' };
 
-// players: [{ id, name, fpg, gap, pos, jersey }]
+// players: [{ id, name, fpg, gap, slot, jersey, height (in), weight (lb), face (headshot url or '') }]
 export function mountStage({ canvas, labels, section, players, onPick, onPhase }) {
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const small = innerWidth < 760;
@@ -278,11 +280,26 @@ export function mountStage({ canvas, labels, section, players, onPick, onPhase }
   };
   const maxFp = Math.max(...players.map((p) => p.fpg), 1);
   const figures = players.map((pl, i) => {
-    const [dx, dz] = SPOTS[i % SPOTS.length];
-    const fig = makePlayer(POSE_FOR(pl.pos, i), pl.jersey, mats);
+    const [dx, dz] = SPOTS[pl.slot] || [6, (i - 2) * 2.5];
+    const fig = makePlayer(POSES_BY_SLOT[pl.slot] || 'set', pl.jersey, mats);
+    // built to size: the figure is modelled at 6'7" and 220 lb
+    const tall = pl.height / 79, wide = Math.sqrt(pl.weight / 220);
+    fig.root.scale.set(wide, tall, wide);
     fig.root.position.set(HOOP_X - dx, 0, dz);
     fig.root.lookAt(HOOP_X, 0, 0);
     scene.add(fig.root);
+    // his face: the headshot, always turned to the camera, engraved like everything else
+    if (pl.face) {
+      new THREE.TextureLoader().setCrossOrigin('anonymous').load(pl.face, (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5 }));
+        sprite.scale.set(0.5 * wide, 0.36 * wide, 1);
+        fig.head.getWorldPosition(sprite.position);
+        sprite.position.y += 0.04 * tall;
+        fig.head.visible = false;
+        scene.add(sprite);
+      });
+    }
     // the ring at his feet: radius follows projection
     const r = 0.45 + 0.75 * (pl.fpg / maxFp);
     const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + 0.045, 64), mats.ring);
@@ -303,11 +320,12 @@ export function mountStage({ canvas, labels, section, players, onPick, onPhase }
     el.type = 'button';
     el.className = `col-label ${pl.gap >= 0 ? 'up' : 'down'}`;
     el.innerHTML = '<b></b><span></span>';
-    el.querySelector('b').textContent = pl.name;
-    el.querySelector('span').textContent = `${pl.fpg.toFixed(1)} proj · ${pl.gap >= 0 ? 'under' : 'over'}priced ${Math.abs(pl.gap).toFixed(1)}`;
+    el.querySelector('b').textContent = `${pl.name}${pl.jersey ? ` #${pl.jersey}` : ''}`;
+    el.title = SLOT_NAMES[pl.slot] || '';
+    el.querySelector('span').textContent = `${pl.slot} · ${pl.fpg.toFixed(1)} proj · ${pl.gap >= 0 ? 'under' : 'over'}priced ${Math.abs(pl.gap).toFixed(1)}`;
     el.onclick = () => onPick?.(pl.id);
     labels.append(el);
-    return { el, head: new THREE.Vector3(HOOP_X - dx, 2.45, dz) };
+    return { el, head: new THREE.Vector3(HOOP_X - dx, 2.45 * tall, dz) };
   });
 
   // render target with depth for the engraving pass

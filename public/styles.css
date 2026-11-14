@@ -844,3 +844,8 @@ input, select { background: var(--panel); }
 .beat-b h2 i { font-style: italic; }
 .beat-b p { background: color-mix(in srgb, var(--bg) 82%, transparent); padding: 6px 0; }
 .beat-b { max-width: 470px; }
+/* the scoreboard card sits low on the right, balancing the wordmark and leaving the hoop clear */
+@media (min-width: 761px) {
+  .jumbotron { top: auto; bottom: clamp(24px, 6vh, 64px); }
+  body.demo[data-page="home"] .jumbotron { bottom: calc(clamp(24px, 6vh, 64px) + 44px); }
+}

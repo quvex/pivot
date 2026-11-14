@@ -257,8 +257,15 @@ let unmountStage = null;
 function renderHome(app) {
   const w = S.week, me = w?.teams.find((t) => t.mine), leader = w?.teams[0];
   const movers = S.players.filter((p) => p.signal).sort((a, b) => b.signal.score - a.signal.score).slice(0, 9);
-  const arc = S.players.filter((p) => p.s.season?.gp >= 3 && p.model.rank <= 140)
-    .map((p) => ({ p, d: p.model.fpg - p.market.recent })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, innerWidth < 760 ? 5 : 8);
+  // the court shows a possession: the most mispriced player at each position
+  const pool = S.players.filter((p) => p.s.season?.gp >= 3 && p.model.rank <= 140 && p.team !== 'FA')
+    .map((p) => ({ p, d: p.model.fpg - p.market.recent })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+  const used = new Set();
+  const arc = ['PG', 'SG', 'SF', 'PF', 'C'].map((slot) => {
+    const pick = pool.find(({ p }) => p.pos === slot && !used.has(p.id)) || pool.find(({ p }) => !used.has(p.id));
+    if (pick) used.add(pick.p.id);
+    return pick && { ...pick, slot };
+  }).filter(Boolean);
   const moves = (w?.my?.advice || []).slice(0, 3).map((a) => a.split(/: (?=[a-z])/)[0].replace(/\.$/, ''));
   const today = new Date(DEMO ? S.meta.refreshedAt : Date.now()).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const m = myMatchup(w);
@@ -283,7 +290,7 @@ function renderHome(app) {
         </div>
         <div class="beat beat-b">
           <h2>Where the market is <i>wrong</i></h2>
-          <p>The eight players whose price is furthest from Pivot's projection. The ring at each player's feet grows with his projection. Click a name for the details.</p>
+          <p>The most mispriced player at each position, set up for a possession and built to his real height. The ring at his feet grows with his projection. Click a name for the details.</p>
         </div>
         <aside class="jumbotron" aria-label="Today">
           <p class="today-date">${esc(today)}${me ? ` · ${esc(me.name)}` : ''}</p>
@@ -315,7 +322,7 @@ function renderHome(app) {
     if (!stage.isConnected) return;
     unmountStage = mountStage({
       canvas: $('#court'), labels: $('#col-labels'), section: stage,
-      players: arc.map(({ p, d }) => ({ id: p.id, name: p.name, fpg: p.model.fpg, gap: d, pos: p.pos, jersey: p.jersey || '' })),
+      players: arc.map(({ p, d, slot }) => ({ id: p.id, name: p.name, fpg: p.model.fpg, gap: d, slot, jersey: p.jersey || '', height: p.height || 79, weight: p.weight || 220, face: DEMO ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=350&h=254` })),
       onPick: (id) => openPlayer(id),
       onPhase: (pr) => { stage.dataset.beat = pr < 0.2 ? 'a' : pr < 0.74 ? 'b' : 'c'; },
     });
