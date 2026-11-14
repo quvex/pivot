@@ -8,6 +8,8 @@ each with the reasoning behind it.
 The projection model is tested the honest way: on three past NBA seasons, each scored by a version
 tuned only on earlier seasons, with error ranges, an ablation of every piece, and a live track record.
 
+**[Open the live demo](https://quvex.github.io/pivot/)**: a frozen snapshot of one real league, with team names changed. Nothing to install; the trade tool runs in your browser.
+
 <!-- Add a screenshot or short GIF of the front page and the trade builder here: docs/screenshot.png -->
 
 ## What it does
@@ -158,7 +160,19 @@ npm run lint            # ESLint
 npm run backtest        # re-tune and re-score the projection model
 npm run refresh         # run the daily update without the server
 npm run check:sources   # hit every live source and report what it returned
+npm run demo:snapshot   # write a scrubbed snapshot of your league to demo/state.json
+npm run demo:build      # assemble the static demo in site/
 ```
+
+### The public demo
+
+The demo is the same front end in a read-only mode. `demo:snapshot` builds the page state from a
+real refresh, then removes everything that is not ours to publish: team, owner and league names are
+replaced, news text and injury-report wording are dropped (Pivot's own outcome for each item stays),
+and only ESPN's projection rank and the combined consensus are kept from the ranking sources. The
+script refuses to write if any original name or secret is still present. In the browser, the trade
+engine (`lib/trade.mjs`, which has no dependencies) runs client-side, so mock offers and the builder
+work live. GitHub Actions publishes it to GitHub Pages on every push.
 
 ## Data and terms
 
@@ -176,10 +190,13 @@ lib/estimator.mjs       the per-game estimate shared by the live model and the b
 lib/backtest.mjs        tuning, rolling-origin evaluation, bootstrap intervals, ablation
 lib/livescore.mjs       scores saved daily projections against what happened since
 lib/model.mjs           projections, consensus, market value, signals, waivers, weekly plan
-lib/trade.mjs           trade evaluation and mock offers
+lib/trade.mjs           trade evaluation and mock offers (also runs in the browser)
+lib/ownership.mjs       who owns each player
+lib/state.mjs           the page state the UI renders
 lib/news.mjs            news classification, league outcomes, LLM briefing
 lib/refresh.mjs         the daily job
 public/                 the app
 test/                   unit tests
-scripts/                live source check
+scripts/                live source check, demo snapshot and build
+demo/state.json         the scrubbed snapshot the public demo runs on
 ```

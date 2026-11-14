@@ -14,7 +14,34 @@ const ui = {
   home: { offer: undefined, loading: false },
 };
 
+// ---------- demo mode ----------
+// The public demo is static: the state comes from a saved snapshot and the trade engine runs in
+// the browser. Anything that would change data is refused with a clear message.
+const DEMO = document.documentElement.dataset.demo === 'true';
+const REPO_URL = 'https://github.com/quvex/pivot';
+let demo = null;
+async function demoApi(path, body) {
+  demo ||= { state: await (await fetch('state.json')).json() };
+  const url = new URL(path, location.href);
+  const p = url.pathname;
+  if (p.endsWith('/api/state')) return demo.state;
+  if (p.endsWith('/api/status')) return { job: demo.state.job, refreshedAt: demo.state.meta.refreshedAt };
+  if (p.includes('/api/trade/')) {
+    if (!demo.ctx) {
+      const [{ tradeContext, evaluateTrade, mockOffers }, { ownership }] = await Promise.all([import('./lib/trade.mjs'), import('./lib/ownership.mjs')]);
+      const d = { players: demo.state.players, league: demo.state.demo.league, schedule: demo.state.demo.schedule, meta: demo.state.meta };
+      demo.ctx = tradeContext(d, ownership(d, demo.state.demo.settings));
+      demo.lib = { evaluateTrade, mockOffers };
+    }
+    const num = (k) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : null);
+    if (p.endsWith('/offers')) return demo.lib.mockOffers(demo.ctx, { playerId: num('player'), teamId: num('team') });
+    if (p.endsWith('/evaluate')) return { trade: demo.lib.evaluateTrade(demo.ctx, body.give || [], body.get || []) };
+  }
+  throw new Error('This is a read-only demo. Run Pivot on your own league to change settings or refresh data.');
+}
+
 async function api(path, body) {
+  if (DEMO) return demoApi(path, body);
   const res = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
@@ -65,11 +92,16 @@ function renderChrome() {
     const m = S.meta, ok = m.status.length - failed.length, bt = m.backtest?.results?.find((r) => r.key === 'model');
     $('#statusbar').innerHTML = [
       `<span><i class="dot ${failed.length ? 'off' : ''}"></i>${ok}/${m.status.length} feeds live</span>`,
-      `<span>Updated ${timeAgo(m.refreshedAt)}</span>`,
+      DEMO ? `<span>Snapshot of ${esc(new Date(m.refreshedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }))}</span>` : `<span>Updated ${timeAgo(m.refreshedAt)}</span>`,
       S.league ? `<span>${esc(S.league.name)}</span>` : '',
       `<span>Replacement ${fmt(m.repl)} FP/G</span>`,
       bt ? `<span title="Average miss in rest-of-season FP/G on the ${esc(m.backtest.testSeason)} season, which the model was not tuned on">Model miss ±${bt.mae.toFixed(2)} FP/G</span>` : '',
     ].join('');
+  }
+  if (DEMO) {
+    $('#refresh').hidden = true;
+    $('#banner').innerHTML = `<div class="bar demo"><span><b>Demo.</b> A frozen snapshot of one real league from ${S?.ready ? esc(new Date(S.meta.refreshedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })) : 'November 2026'}, with team names changed. Trades and the builder work live; refreshing and settings are off.</span> <a href="#settings">About</a> · <a href="${REPO_URL}" target="_blank" rel="noopener noreferrer">Source on GitHub</a></div>`;
+    return;
   }
   $('#banner').innerHTML = busy
     ? '<div class="bar busy">Pulling rankings, stats and news. This takes about 15 seconds.</div>'
@@ -210,7 +242,7 @@ function renderHome(app) {
     .map((p) => ({ p, d: p.model.fpg - p.market.recent })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 28);
   const tapeHtml = tape.map(({ p, d }) => `<span class="tick" data-player="${p.id}"><b>${esc(p.name)}</b><span class="num">${fmt(p.model.fpg)}</span><span class="num ${d >= 0 ? 'up' : 'down'}">${TRI(d >= 0)}${fmt(Math.abs(d))}</span></span>`).join('');
   const moves = (w?.my?.advice || []).slice(0, 3).map((a) => a.split(/: (?=[a-z])/)[0].replace(/\.$/, ''));
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const today = new Date(DEMO ? S.meta.refreshedAt : Date.now()).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const gap = me && leader ? leader.points - me.points : 0;
 
   app.innerHTML = `
@@ -717,19 +749,45 @@ function renderNews(app) {
         <div class="news-list">${items.slice(0, 120).map((n) => `<article class="card ${n.own?.type === 'mine' ? 'mine' : ''}">
           <div class="head"><span class="chip ${n.tone}">${esc(n.label)}</span>${n.name ? `<span class="pl" data-player="${n.playerId}">${esc(n.name)} <small>${esc(n.team)} ${esc(n.pos)}</small></span>` : ''}${ownChip(n.own)}
             <span class="time" title="${esc(new Date(n.time).toLocaleString())}">${timeAgo(n.time)} · ${esc(n.source)}</span></div>
-          <p class="txt">${esc(n.headline)}</p>
+          ${n.headline ? `<p class="txt">${esc(n.headline)}</p>` : ''}
           ${n.text ? `<p class="more">${esc(n.text)}</p>` : ''}
           ${n.ai || n.lines.length ? `<div class="out"><div class="lbl">For your league</div><ul>${n.ai ? `<li>${esc(n.ai)}</li>` : n.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>` : ''}
         </article>`).join('') || '<div class="panel"><div class="empty">No news in this view. Try “Everything”.</div></div>'}</div>
       </div>
       <div class="panel"><header><h2>League headlines</h2><p>ESPN</p></header>
-        ${S.headlines.map((h) => `<a class="headline" href="${esc(/^https:\/\//.test(h.url) ? h.url : '#')}" target="_blank" rel="noopener noreferrer">${esc(h.headline)}<div class="muted" style="font-size:12px">${timeAgo(h.time)}</div></a>`).join('') || '<div class="empty">No headlines.</div>'}</div>
+        ${S.headlines.map((h) => `<a class="headline" href="${esc(/^https:\/\//.test(h.url) ? h.url : '#')}" target="_blank" rel="noopener noreferrer">${esc(h.headline)}<div class="muted" style="font-size:12px">${timeAgo(h.time)}</div></a>`).join('') || `<div class="empty">${DEMO ? 'Headlines are left out of the public demo.' : 'No headlines.'}</div>`}</div>
     </div>`;
   $('#nf').onclick = (e) => { if (e.target.dataset.v) { ui.news.filter = e.target.dataset.v; renderNews(app); } };
 }
 
 // ---------- settings ----------
+function renderAbout(app) {
+  const m = S.meta;
+  app.innerHTML = `
+    <div class="page-head"><div><h1>About</h1>
+      <p>Pivot is a decision tool for an ESPN fantasy basketball points league. This demo is a frozen copy of one real league, taken ${esc(new Date(m.refreshedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }))}.</p></div></div>
+    <div class="grid2">
+      <div class="stack">${m.backtest ? accuracyPanel(m.backtest, m.live) : ''}</div>
+      <div class="stack">
+        <div class="panel"><header><h2>What's in the demo</h2></header><div class="body about">
+          <p>Everything you see is computed from real data: player stats, schedules, injuries and the league's actual standings and rosters. The trade tool runs its engine in your browser, so mock offers and the builder work exactly as they do in the app.</p>
+          <p>Some things are left out of the public copy:</p>
+          <ul>
+            <li>Team and owner names, replaced with made-up ones.</li>
+            <li>News headlines, article text and injury-report wording, which belong to their publishers. Pivot's own read of each item is kept.</li>
+            <li>Individual ranking sites' lists. Only ESPN's projection and the combined consensus are shown.</li>
+          </ul>
+          <p><a href="${REPO_URL}" target="_blank" rel="noopener noreferrer">Source code, method and evaluation on GitHub</a></p>
+        </div></div>
+        <div class="panel"><header><h2>Sources in the full app</h2><p>Status on the snapshot day</p></header>
+          ${m.status.map((st) => `<div class="src-row"><span><span class="dot ${st.ok ? '' : 'off'}"></span>${esc(st.label)}</span><span class="muted">${esc(st.detail)}</span></div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
 function renderSettings(app) {
+  if (DEMO) return renderAbout(app);
   const s = S.settings;
   const scoreStats = [0, 6, 3, 2, 1, 11, 17, 13, 14, 15, 16, 4, 5, 23, 24, 37, 38, 9];
   const scoring = S.ready ? S.meta.scoring : s.scoring;
@@ -829,7 +887,7 @@ function accuracyPanel(bt, live) {
   const folds = bt.folds || [];
   const pooled = bt.pooled;
   const max = pooled ? Math.max(...bt.baselines.map((k) => pooled.mae[k].hi)) : 1;
-  const liveBlock = !live ? '' : live.overall
+  const liveBlock = DEMO ? '<p>The full app saves every daily projection and scores it once the players have had a week of games, next to their season average on the same day. Logging began on the day this snapshot was taken, so the demo has no live results yet.</p>' : !live ? '' : live.overall
     ? `<p>Projections saved by each daily update are compared with what the player has averaged since. Across ${live.scored.length} scored day${live.scored.length === 1 ? '' : 's'} (${live.overall.n.toLocaleString('en-US')} player projections), Pivot has missed by <b class="num">${live.overall.model.toFixed(2)}</b> FP/G against <b class="num">${live.overall.seasonAvg.toFixed(2)}</b> for the season average on the same days.</p>`
     : `<p>Each daily update now saves its projections. ${live.snapshots ? `${live.snapshots} saved so far; the first ${live.nextScoredOn != null ? `can be scored in ${Math.max(1, live.nextScoredOn)} day${live.nextScoredOn === 1 ? '' : 's'}` : 'is waiting for games'}` : 'None saved yet'}, once the players have had a week of games.</p>`;
   return `<div class="panel"><header><h2>Projection accuracy</h2><p>Tested on seasons it never saw</p></header><div class="body acc-body">
@@ -877,8 +935,8 @@ function openPlayer(id) {
       <tbody><tr style="cursor:default">${S.meta.sources.map((s) => `<td>${p.ranks[s.key] ?? '–'}</td>`).join('')}<td class="strong">${p.model.rank}</td></tr></tbody></table></div></section>
     <section><h3>Per-game production</h3><div class="table-wrap"><table><thead><tr><th class="l">Split</th><th>GP</th><th>MIN</th><th>FP</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>FG%</th></tr></thead>
       <tbody>${splits.filter(([k]) => p.s[k]).map(([k, l]) => { const x = p.s[k]; return `<tr style="cursor:default"><td class="l">${l}</td><td>${x.gp}</td><td>${fmt(x.min)}</td><td class="strong">${fmt(x.fp)}</td><td>${fmt(x.pts)}</td><td>${fmt(x.reb)}</td><td>${fmt(x.ast)}</td><td>${fmt(x.stl)}</td><td>${fmt(x.blk)}</td><td>${fmt(x.to)}</td><td>${fmt(x.fgp * 100)}</td></tr>`; }).join('')}</tbody></table></div></section>
-    ${p.injury ? `<section><h3>Injury report</h3><p>${esc(p.injury.comment)}</p></section>` : ''}
-    ${news.length ? `<section><h3>Recent news</h3><ul>${news.map((n) => `<li><span class="chip ${n.tone}">${esc(n.label)}</span> ${esc(n.headline)} <span class="muted">${timeAgo(n.time)}</span></li>`).join('')}</ul></section>` : ''}
+    ${p.injury?.comment ? `<section><h3>Injury report</h3><p>${esc(p.injury.comment)}</p></section>` : ''}
+    ${news.length ? `<section><h3>Recent news</h3><ul>${news.map((n) => `<li><span class="chip ${n.tone}">${esc(n.label)}</span> ${esc(n.headline || n.lines?.[0] || '')} <span class="muted">${timeAgo(n.time)}</span></li>`).join('')}</ul></section>` : ''}
     <section><button class="btn small primary" data-mock="${p.id}">Mock offers</button> ${p.own?.type === 'mine' || !S.league ? `<button class="btn small" data-analyze="give:${p.id}">Offer him in a trade</button>` : ''} ${p.own?.type === 'team' || !S.league ? `<button class="btn small" data-analyze="get:${p.id}">Build an offer for him</button>` : ''}</section>`;
   d.hidden = false; $('#scrim').hidden = false;
 }

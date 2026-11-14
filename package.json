@@ -10,7 +10,9 @@
     "backtest": "node lib/backtest.mjs",
     "test": "node --test",
     "lint": "eslint .",
-    "check:sources": "node scripts/check-sources.mjs"
+    "check:sources": "node scripts/check-sources.mjs",
+    "demo:snapshot": "node scripts/demo-snapshot.mjs",
+    "demo:build": "node scripts/build-demo.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0"
