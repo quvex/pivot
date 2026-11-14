@@ -200,10 +200,14 @@ Each figure on the home page is a realistic male base mesh (CC0, by Orange Juice
 the body by skin weight. An invisible Mixamo X Bot holds the basketball stances and the idle
 breathing, and the visible body copies its bone rotations every frame.
 
-Faces are optional and stay on your machine. With a Meshy API key saved in Settings, the court
-offers to turn each player's ESPN headshot into a textured 3D bust (`lib/heads.mjs`). The busts are
-saved in `data/heads`, which is never committed, and only the local server serves them. The public
-demo has no server, so it shows no faces: real players' likenesses aren't mine to publish.
+Faces are optional, free and stay on your machine. `npm run faces:setup` installs
+[TripoSR](https://github.com/VAST-AI-Research/TripoSR) (MIT) into `.faces/`, about 4 GB with
+PyTorch and the model. The court then offers to turn each player's ESPN headshot into a 3D bust,
+about 20 seconds a player on an M4 (`scripts/faces.py`, run by `lib/heads.mjs`). Each bust is
+trimmed at the neck and set on the body's head, and the body takes its skin tone from the face.
+The busts are saved in `data/heads`, which is never committed, and only the local server serves
+them. The public demo has no server, so it shows no faces: real players' likenesses aren't mine to
+publish.
 
 ## Data and terms
 

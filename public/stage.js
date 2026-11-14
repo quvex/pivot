@@ -627,7 +627,7 @@ function animateFigure(f, dt, t) {
 }
 
 // ---------- faces: made on this computer only ----------
-// A face is a textured 3D bust made from the player's photo (lib/heads.mjs). The bust is trimmed at
+// A face is a 3D bust made from the player's photo by TripoSR on this computer (lib/heads.mjs). The bust is trimmed at
 // the neck (the narrowest slice above the shoulders), sized to the body's head, set on it facing
 // the way he faces, and carried by the head bone; the body's own head is hidden under it.
 async function attachFace(f, url, GLTFLoader) {
@@ -666,12 +666,32 @@ async function attachFace(f, url, GLTFLoader) {
     const tris = [];
     for (let t = 0; t < idx.length; t += 3) if (ys[idx[t]] >= cut || ys[idx[t + 1]] >= cut || ys[idx[t + 2]] >= cut) tris.push(idx[t], idx[t + 1], idx[t + 2]);
     g.setIndex(tris);
-    const map = m.material?.map || null;
-    m.material = new THREE.MeshLambertMaterial({ map, color: map ? 0xffffff : 0x9a9a9a });
+    // a bust with no normals would light black
+    if (!g.attributes.normal) g.computeVertexNormals();
+    const map = m.material?.map || null, painted = Boolean(g.attributes.color);
+    m.material = new THREE.MeshLambertMaterial({ map, vertexColors: painted, color: map || painted ? 0xffffff : 0x9a9a9a });
     m.castShadow = true;
     m.frustumCulled = false;
   }
   if (kept.isEmpty() || !f.headBone || !f.neckBone || !f.alive()) return;
+  // his skin tone, from his own face, so his arms and legs match it: the cheeks and chin on the
+  // front of the bust, keeping the brighter half so hair, beard and shadow don't darken it
+  const base = Math.max(kept.min.y, cut), tall = kept.max.y - base, midZ = (kept.min.z + kept.max.z) / 2;
+  const tone = new THREE.Color(), samples = [];
+  for (const m of meshes) {
+    const pos = m.geometry.attributes.position, col = m.geometry.attributes.color;
+    if (!col) continue;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const down = (kept.max.y - v.y) / tall;
+      if (down < 0.35 || down > 0.62 || v.z < midZ) continue;
+      samples.push([col.getX(i), col.getY(i), col.getZ(i)]);
+    }
+  }
+  samples.sort((p, q) => (q[0] + q[1] + q[2]) - (p[0] + p[1] + p[2]));
+  const bright = samples.slice(0, Math.max(1, Math.floor(samples.length / 2)));
+  const count = samples.length ? bright.length : 0;
+  if (count) tone.setRGB(...[0, 1, 2].map((k) => bright.reduce((t, p) => t + p[k], 0) / count));
   // the body's head, from the crown down to the base of the neck, as posed right now
   f.root.updateMatrixWorld(true);
   const headAt = f.headBone.getWorldPosition(new THREE.Vector3());
@@ -684,7 +704,8 @@ async function attachFace(f, url, GLTFLoader) {
   bust.position.sub(top);
   const holder = new THREE.Group();
   holder.add(bust);
-  holder.scale.setScalar(span / (kept.max.y - Math.max(kept.min.y, cut === -Infinity ? kept.min.y : cut)));
+  // a touch over the span: the bust's neck tucks into the collar
+  holder.scale.setScalar((span * 1.14) / (kept.max.y - base));
   // turn it to face his way, then tip it to the lean of his neck
   holder.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up).multiply(f.root.getWorldQuaternion(new THREE.Quaternion()));
   holder.position.copy(crown);
@@ -692,7 +713,10 @@ async function attachFace(f, url, GLTFLoader) {
   holder.updateMatrixWorld(true);
   f.headBone.attach(holder);
   // hide his own head under the face
-  for (const { o, plan } of f.skins) if (plan.noHead) o.geometry.setIndex(plan.noHead);
+  for (const { o, plan } of f.skins) {
+    if (plan.noHead) o.geometry.setIndex(plan.noHead);
+    if (count) o.material = new THREE.MeshLambertMaterial({ color: tone });
+  }
   f.bust = holder;
 }
 

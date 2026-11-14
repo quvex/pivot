@@ -370,12 +370,13 @@ function renderHome(app) {
       const missing = courtIds.filter((id) => !ready.has(id));
       const busy = (st.pending || []).filter((j) => courtIds.includes(j.id));
       const failed = (st.failed || []).filter((j) => courtIds.includes(j.id));
-      facesEl.hidden = !st.enabled || (!missing.length && !busy.length);
+      facesEl.hidden = !missing.length && !busy.length;
+      if (!st.enabled) { facesEl.innerHTML = 'For 3D faces, run <code>npm run faces:setup</code> once. They are made and kept on this computer.'; return; }
       if (busy.length) {
         facesEl.textContent = `Making faces: ${courtIds.length - missing.length} of ${courtIds.length} done`;
         facesTimer = setTimeout(() => fetch('/api/heads').then((r) => r.json()).then(showFaces).catch(() => {}), 8000);
       } else if (missing.length) {
-        facesEl.innerHTML = `<button type="button" class="btn link">Make 3D faces for ${missing.length} player${missing.length === 1 ? '' : 's'}</button> <span>with Meshy, kept on this computer${failed.length ? `. ${failed.length} failed: ${esc(failed[0].error)}` : ''}</span>`;
+        facesEl.innerHTML = `<button type="button" class="btn link">Make 3D faces for ${missing.length} player${missing.length === 1 ? '' : 's'}</button> <span>free, made and kept on this computer${failed.length ? `. ${failed.length} failed: ${esc(failed[0].error)}` : ''}</span>`;
         facesEl.querySelector('button').onclick = () => api('/api/heads', { ids: missing }).then(showFaces).catch((e) => { facesEl.textContent = e.message; });
       }
     };
@@ -1176,12 +1177,6 @@ function renderSettings(app) {
           <div class="field"><label for="aiModel">Model</label><select id="aiModel" style="width:220px">${['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2'].map((m) => `<option ${s.aiModel === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
           <div><button class="btn primary">Save</button></div>
         </form></div></div>
-        <div class="panel"><header><h2>Player faces</h2><p>On this computer only</p></header><div class="body"><form class="form" id="f-faces">
-          <div class="field"><label for="meshyKey">Meshy API key ${s.hasMeshyKey ? '<span class="chip good">Saved</span>' : ''}</label>
-            <input id="meshyKey" type="password" placeholder="${s.hasMeshyKey ? 'Key saved (leave blank to keep)' : 'msy_…'}" autocomplete="off">
-            <span class="hint">With a key, the court offers to turn each player's ESPN headshot into a 3D face with Meshy (about 30 credits a player). Faces are saved in <code>data/heads</code> on this computer and are never part of the public demo or the repository.${s.hasMeshyKey ? ' <button type="button" class="btn link" id="clear-faces">Remove key</button>' : ''}</span></div>
-          <div><button class="btn primary">Save</button></div>
-        </form></div></div>
       </div>
 
       <div class="stack">
@@ -1221,8 +1216,6 @@ ${S.meta?.backtest ? accuracyPanel(S.meta.backtest, S.meta.live) : ''}
   $('#reset-scoring').onclick = () => save({ resetScoring: true });
   if ($('#clear-espn')) $('#clear-espn').onclick = () => save({ clear: ['espnS2', 'swid'] });
   if ($('#clear-ai')) $('#clear-ai').onclick = () => save({ clear: ['anthropicKey'] });
-  $('#f-faces').onsubmit = (e) => { e.preventDefault(); save({ meshyKey: $('#meshyKey').value }); };
-  if ($('#clear-faces')) $('#clear-faces').onclick = () => save({ clear: ['meshyKey'] });
   $('#add-roster').onchange = (e) => {
     const p = S.players.find((x) => x.name.toLowerCase() === e.target.value.trim().toLowerCase());
     if (p) save({ manualRoster: [...(s.manualRoster || []), p.id] });

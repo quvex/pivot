@@ -13,7 +13,8 @@
     "check:sources": "node scripts/check-sources.mjs",
     "demo:snapshot": "node scripts/demo-snapshot.mjs",
     "demo:build": "node scripts/build-demo.mjs",
-    "shots": "node scripts/shots.mjs"
+    "shots": "node scripts/shots.mjs",
+    "faces:setup": "sh scripts/faces-setup.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0"

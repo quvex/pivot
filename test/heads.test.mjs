@@ -1,40 +1,47 @@
-import { test } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { makeHead, hasHead, headStatus, photoUrl } from '../lib/heads.mjs';
+import { makeHeads, headStatus, hasHead, resetHeadJobs } from '../lib/heads.mjs';
 
-const glb = Buffer.concat([Buffer.from('glTF'), Buffer.alloc(16)]);
-const json = (body, ok = true, status = 200) => ({ ok, status, json: async () => body });
+beforeEach(() => resetHeadJobs());
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'heads-'));
 
-test('makeHead creates a Meshy task from the ESPN photo, waits for it and saves the model', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'heads-'));
-  const calls = [];
-  let polls = 0;
-  const fake = async (url, init = {}) => {
-    calls.push({ url, init });
-    if (init.method === 'POST') return json({ result: 'task-1' });
-    if (url.endsWith('/task-1')) return json(++polls < 2 ? { status: 'IN_PROGRESS', progress: 40 } : { status: 'SUCCEEDED', progress: 100, model_urls: { glb: 'https://assets.example/head.glb' } });
-    return { ok: true, arrayBuffer: async () => glb };
+test('makeHeads runs one batch, records each face, and reports failures by player', async () => {
+  const dir = tmp();
+  const batches = [];
+  const run = async (ids, out, onLine) => {
+    batches.push(ids);
+    await null; // the real generator is a separate process: it reports later
+    fs.writeFileSync(path.join(out, '1.glb'), 'glTF');
+    onLine(JSON.stringify({ id: 1, ok: true }));
+    onLine('some log line that is not JSON');
+    onLine(JSON.stringify({ id: 2, ok: false, error: 'No face found' }));
+    return { code: 0, stderr: '' };
   };
-  const out = await makeHead(3992, 'msy_test', { fetch: fake, dir, poll: 1 });
-  assert.equal(out, path.join(dir, '3992.glb'));
-  assert.ok(hasHead(3992, dir));
-  const body = JSON.parse(calls[0].init.body);
-  assert.equal(body.image_url, photoUrl(3992));
-  assert.equal(calls[0].init.headers.Authorization, 'Bearer msy_test');
-  assert.deepEqual(headStatus(dir).ready, [3992]);
+  const first = makeHeads([1, 2], { dir, run });
+  assert.deepEqual(first.pending.map((j) => j.id), [1, 2]);
+  await first.started;
+  assert.deepEqual(batches, [[1, 2]]);
+  assert.ok(hasHead(1, dir));
+  const st = headStatus(dir);
+  assert.deepEqual(st.ready, [1]);
+  assert.deepEqual(st.pending, []);
+  assert.deepEqual(st.failed, [{ id: 2, error: 'No face found' }]);
 });
 
-test('makeHead reports a failed task and saves nothing', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'heads-'));
-  const fake = async (url, init = {}) => (init.method === 'POST' ? json({ result: 't' }) : json({ status: 'FAILED', task_error: { message: 'No face found' } }));
-  await assert.rejects(makeHead(7, 'k', { fetch: fake, dir, poll: 1 }), /No face found/);
-  assert.equal(hasHead(7, dir), false);
+test('players the generator never reports on fail with its last error line', async () => {
+  const dir = tmp();
+  const run = async () => ({ code: 1, stderr: 'Traceback...\nRuntimeError: out of memory\n' });
+  await makeHeads([5], { dir, run }).started;
+  assert.deepEqual(headStatus(dir).failed, [{ id: 5, error: 'RuntimeError: out of memory' }]);
 });
 
-test('makeHead surfaces a refused key', async () => {
-  const fake = async () => json({ message: 'Invalid API key' }, false, 401);
-  await assert.rejects(makeHead(7, 'bad', { fetch: fake, dir: os.tmpdir(), poll: 1 }), /Invalid API key/);
+test('faces already made are not made again', async () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, '9.glb'), 'glTF');
+  let called = false;
+  await makeHeads([9], { dir, run: async () => { called = true; return { code: 0 }; } }).started;
+  assert.equal(called, false);
 });

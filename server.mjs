@@ -8,7 +8,7 @@ import { ownership } from './lib/ownership.mjs';
 import { tradeContext, evaluateTrade, mockOffers } from './lib/trade.mjs';
 import { buildState } from './lib/state.mjs';
 import { fetchEspnLeague } from './lib/sources.mjs';
-import { headStatus, makeHeads, hasHead, headPath } from './lib/heads.mjs';
+import { headStatus, makeHeads, hasHead, headPath, facesInstalled } from './lib/heads.mjs';
 
 const PORT = Number(process.env.PORT) || 5178;
 const PUBLIC = path.join(ROOT, 'public');
@@ -67,9 +67,7 @@ async function updateSettings(body) {
   for (const key of ['espnS2', 'swid', 'anthropicKey', 'altKey']) {
     if (typeof body[key] === 'string' && body[key].trim()) { patch[key] = body[key].trim(); needsRefresh = true; }
   }
-  // the faces key changes nothing about the day's data, so it saves without a refresh
-  if (typeof body.meshyKey === 'string' && body.meshyKey.trim()) patch.meshyKey = body.meshyKey.trim();
-  for (const key of body.clear || []) if (['espnS2', 'swid', 'anthropicKey', 'altKey', 'meshyKey'].includes(key)) patch[key] = '';
+  for (const key of body.clear || []) if (['espnS2', 'swid', 'anthropicKey', 'altKey'].includes(key)) patch[key] = '';
   if (typeof body.aiModel === 'string' && /^claude-[a-z0-9-]+$/.test(body.aiModel)) patch.aiModel = body.aiModel;
   if (Array.isArray(body.manualRoster)) patch.manualRoster = [...new Set(body.manualRoster.map(Number).filter(Number.isFinite))].slice(0, 30);
   if ('refreshHour' in body) { const h = cleanNum(body.refreshHour, 0, 23); if (h != null) patch.refreshHour = Math.round(h); }
@@ -96,8 +94,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname.startsWith('/api/')) {
       if (req.method === 'GET' && url.pathname === '/api/state') return send(200, buildState(data, loadSettings(), job));
-      const meshyKey = () => loadSettings().meshyKey || process.env.MESHY_API_KEY || '';
-      if (req.method === 'GET' && url.pathname === '/api/heads') return send(200, { enabled: Boolean(meshyKey()), ...headStatus() });
+      if (req.method === 'GET' && url.pathname === '/api/heads') return send(200, { enabled: facesInstalled(), ...headStatus() });
       if (req.method === 'GET' && url.pathname === '/api/status') return send(200, { job, refreshedAt: data?.meta.refreshedAt || null });
       if (req.method === 'GET' && url.pathname === '/api/trade/offers') {
         if (!data) return send(409, { error: 'No data yet' });
@@ -134,9 +131,11 @@ const server = http.createServer(async (req, res) => {
           return send(200, { trade: evaluateTrade(tradeContext(data, ownership(data, loadSettings())), ids(body.give), ids(body.get)) });
         }
         if (url.pathname === '/api/heads') {
-          if (!meshyKey()) return send(409, { error: 'Add a Meshy API key in Settings first.' });
+          if (!facesInstalled()) return send(409, { error: 'Set up the face generator first: npm run faces:setup' });
           const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Number.isFinite).slice(0, 12) : [];
-          return send(202, { enabled: true, ...makeHeads(ids, meshyKey()) });
+          const { started, ...status } = makeHeads(ids);
+          started.catch((e) => console.error('Faces failed:', e.message));
+          return send(202, { enabled: true, ...status });
         }
         if (url.pathname === '/api/settings') { await updateSettings(body); return send(200, { job, settings: publicSettings() }); }
       }
