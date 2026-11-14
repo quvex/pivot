@@ -849,3 +849,31 @@ input, select { background: var(--panel); }
   .jumbotron { top: auto; bottom: clamp(24px, 6vh, 64px); }
   body.demo[data-page="home"] .jumbotron { bottom: calc(clamp(24px, 6vh, 64px) + 44px); }
 }
+
+/* rankings in the ranked-card style */
+body[data-page="rankings"] main { max-width: 1180px; }
+.b-bar input[type=search] { background: transparent; color: var(--bg); border: 1px solid color-mix(in srgb, var(--bg) 55%, transparent); border-radius: 999px; padding: 5px 12px; width: 190px; }
+.b-bar input::placeholder { color: color-mix(in srgb, var(--bg) 70%, transparent); }
+.r-row { grid-template-columns: 70px 64px minmax(0, 1fr) auto auto; }
+.r-row .b-who { line-height: 1.35; }
+.r-row .b-who .b-call { font-size: 12px; }
+.r-nums { display: grid; grid-template-columns: repeat(5, 62px); gap: 4px; text-align: right; }
+.r-nums span { display: grid; gap: 1px; }
+.r-nums small { font: 500 9.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.r-nums b { font: 400 18px var(--display); }
+.r-nums b.muted { color: var(--muted); }
+.r-sources { display: grid; border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+.r-sources [role=row] { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(78px, 1fr); }
+.r-sources [role=row] > * { padding: 7px 10px; border-right: 1px solid var(--line); display: grid; gap: 1px; }
+.r-sources [role=row] > *:last-child { border-right: 0; }
+.r-src-head { background: var(--panel-2); }
+.r-src-head span { font: 600 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); cursor: help; }
+.r-sources [role=cell] b { font: 400 22px var(--display); }
+.r-sources [role=cell] em { font: 11px var(--mono); font-style: normal; color: var(--muted); }
+@media (max-width: 1000px) { .r-nums { grid-template-columns: repeat(3, 56px); } .r-nums span:nth-child(n+4) { display: none; } }
+@media (max-width: 760px) {
+  .r-row { grid-template-columns: 40px 44px minmax(0, 1fr) auto; }
+  .r-nums { display: none; }
+  .b-bar input[type=search] { width: 100%; }
+}
+@media (max-width: 760px) { .b-bar { position: static; } }

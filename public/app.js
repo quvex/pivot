@@ -7,7 +7,7 @@ const signed = (x, d = 1) => (x == null ? '' : `${x > 0 ? '+' : ''}${Number(x).t
 let S = null; // server state
 let byId = new Map();
 const ui = {
-  rank: { q: '', pos: '', show: 'all', sort: 'consensus', dir: 1, limit: 150 },
+  rank: { q: '', pos: '', show: 'all', sort: 'consensus', limit: 100, open: null },
   news: { filter: 'league' },
   give: [], get: [],
   trade: { mode: 'offers', player: null, team: null, partner: null, res: null, loading: false, open: {}, custom: null, evaluating: false },
@@ -301,7 +301,6 @@ function renderHome(app) {
         </aside>
       </div>
     </section>
-    <section class="board-wrap"><div class="board-title"><h2>The Pivot 100</h2><p>Every player Pivot would roster, ranked by rest-of-season value. Open one for his numbers, the read on him and a rating breakdown.</p></div><div id="board"></div></section>
     <div class="home-grid">
       <section class="panel"><header><h2>Mispriced today</h2><p>Where the projection and recent box scores disagree most</p></header><div class="table-wrap"><table>
         <thead><tr><th class="l">Player</th><th class="l">Call</th><th title="Projected fantasy points per game, rest of season">Proj</th><th title="What recent box scores suggest">Recent</th><th>Gap</th></tr></thead>
@@ -327,147 +326,12 @@ function renderHome(app) {
       onPhase: (pr) => { stage.dataset.beat = pr < 0.2 ? 'a' : pr < 0.74 ? 'b' : 'c'; },
     });
   }).catch(() => stage.classList.add('no-webgl'));
-  renderBoard($('#board'));
   loadHomeOffer();
   app.onclick = (e) => {
     if (!e.target.closest('[data-home-edit]') || !ui.home.offer) return;
     const t = ui.home.offer;
     openBuilder({ give: t.give, get: t.get, partner: t.partner?.id ?? null });
   };
-}
-
-// ---------- the Pivot 100 ----------
-// A ranked list in the spirit of Bleacher Report's NBA 100: one row per player, opening into a
-// card with his numbers, Pivot's read on him, and a rating breakdown.
-const TEAM_NAMES = { ATL: 'Hawks', BOS: 'Celtics', BKN: 'Nets', CHA: 'Hornets', CHI: 'Bulls', CLE: 'Cavaliers', DAL: 'Mavericks', DEN: 'Nuggets', DET: 'Pistons', GSW: 'Warriors', HOU: 'Rockets', IND: 'Pacers', LAC: 'Clippers', LAL: 'Lakers', MEM: 'Grizzlies', MIA: 'Heat', MIL: 'Bucks', MIN: 'Timberwolves', NOP: 'Pelicans', NYK: 'Knicks', OKC: 'Thunder', ORL: 'Magic', PHI: '76ers', PHX: 'Suns', POR: 'Trail Blazers', SAC: 'Kings', SAS: 'Spurs', TOR: 'Raptors', UTA: 'Jazz', WAS: 'Wizards', FA: 'Free agent' };
-const ROLE = { PG: 'Guard', SG: 'Guard', SF: 'Wing', PF: 'Big', C: 'Big' };
-const ui100 = { from: 1, role: 'all', team: '', open: null };
-
-// Ratings are percentiles among the top 150, stretched onto a 40 to 99 scale.
-function boardRatings(players) {
-  const pool = [...players].filter((p) => p.team !== 'FA').sort((a, b) => a.model.rank - b.model.rank).slice(0, 150);
-  const cats = {
-    Scoring: (p) => (p.s.season?.pts ?? p.s.proj?.pts ?? 0) + (p.s.season?.tpm ?? 0) * 0.5,
-    Playmaking: (p) => (p.s.season?.ast ?? p.s.proj?.ast ?? 0) - 0.5 * (p.s.season?.to ?? 0),
-    Rebounding: (p) => p.s.season?.reb ?? p.s.proj?.reb ?? 0,
-    Defense: (p) => (p.s.season?.stl ?? 0) + (p.s.season?.blk ?? 0),
-    Availability: (p) => p.avail.games,
-  };
-  const scale = (vals) => { const sorted = [...vals].sort((a, b) => a - b); return (v) => 40 + 59 * (sorted.filter((x) => x <= v).length - 1) / Math.max(1, sorted.length - 1); };
-  const out = new Map();
-  const scales = Object.fromEntries(Object.entries(cats).map(([k, f]) => [k, scale(pool.map(f))]));
-  const avg = Object.fromEntries(Object.keys(cats).map((k) => [k, pool.slice(0, 100).reduce((a, p) => a + scales[k](cats[k](p)), 0) / Math.min(100, pool.length)]));
-  pool.forEach((p, i) => {
-    out.set(p.id, {
-      full: Math.round(99 - (i * 39) / 149),
-      cats: Object.fromEntries(Object.keys(cats).map((k) => [k, Math.round(scales[k](cats[k](p)) * 10) / 10])),
-    });
-  });
-  return { list: pool.slice(0, 100), ratings: out, avg };
-}
-
-const headshot = (p) => (DEMO ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=150&h=110&cb=1`);
-
-function boardRow(p, rank, r) {
-  const call = p.signal ? `<span class="b-call ${p.signal.type}">${p.signal.type === 'buy' ? 'Buy low' : 'Sell high'}</span>` : '';
-  const pic = headshot(p);
-  return `<li class="b-item" data-id="${p.id}" style="--i:${rank % 25}">
-    <button type="button" class="b-row" aria-expanded="${ui100.open === p.id}" aria-controls="b-d-${p.id}">
-      <span class="b-rank">${rank}.</span>
-      <span class="b-pic">${pic ? `<img src="${esc(pic)}" alt="" loading="lazy" onerror="this.remove()">` : ''}<i aria-hidden="true">${esc(p.name.split(' ').map((w) => w[0]).slice(0, 2).join(''))}</i></span>
-      <span class="b-who"><b>${esc(p.name)}</b>, ${esc(TEAM_NAMES[p.team] || p.team)}, ${ROLE[p.pos] || p.pos} ${ownChip(p.own)}</span>
-      ${call}
-      <span class="b-rating"><small>Rating</small><b>${r.full}</b></span>
-    </button>
-    <div class="b-detail" id="b-d-${p.id}" ${ui100.open === p.id ? '' : 'hidden'}>${ui100.open === p.id ? boardDetail(p, rank, r) : ''}</div>
-  </li>`;
-}
-
-function boardDetail(p, rank, r, avg = ui100.avg) {
-  const s = p.s.season || p.s.proj || {};
-  const read = p.signal ? p.signal.reasons.slice(0, 2) : p.model.reasons.slice(0, 2);
-  const question = p.avail.note ? `${p.avail.note}.`
-    : p.avail.durability <= 0.74 ? `Can he stay on the floor? Pivot expects him to play about ${Math.round(p.avail.durability * 100)}% of his remaining games.`
-    : p.model.sd > 5 ? `How stable is this? The model's typical miss for him is ±${fmt(p.model.sd)} FP/G.`
-    : `Whether he holds this pace: ${fmt(p.form?.last5)} FP/G over his last five against ${fmt(p.model.fpg)} projected.`;
-  const stat = (k, v) => `<div class="b-stat"><small>${k}</small><b>${v}</b></div>`;
-  return `<div class="b-card">
-    <div class="b-head"><span class="b-rank big">${rank}.</span><h3>${esc(p.name)}</h3><span class="muted">${esc(TEAM_NAMES[p.team] || p.team)}</span></div>
-    <div class="b-stats">
-      ${stat('Position', ROLE[p.pos] || p.pos)}${stat('Projection', `${fmt(p.model.fpg)} <em>FP/G</em>`)}${stat('Minutes', fmt(p.model.min))}${stat('Games left', fmt(p.avail.games, 0))}
-      ${stat('PTS', fmt(s.pts))}${stat('REB', fmt(s.reb))}${stat('AST', fmt(s.ast))}${stat('STL + BLK', fmt((s.stl || 0) + (s.blk || 0)))}
-    </div>
-    <p class="b-note">${p.s.season ? `This season, ${p.s.season.gp} games` : 'Preseason projection'}${p.age ? ` · age ${p.age}` : ''}${p.consensus ? ` · consensus rank ${p.consensus.rank}` : ''}</p>
-    <div class="b-cols">
-      <div>
-        <h4>Pivot's read</h4>
-        ${read.map((x) => `<p>${esc(x)}.</p>`).join('')}
-        <h4>Biggest question</h4>
-        <p>${esc(question)}</p>
-        <div class="b-actions"><button type="button" class="btn small" data-player="${p.id}">Full profile</button><button type="button" class="btn small" data-mock="${p.id}">Mock offers</button></div>
-      </div>
-      <div class="b-ratings">
-        ${Object.entries(r.cats).map(([k, v]) => `<div class="b-r"><div class="b-r-top"><span>${k}</span><b class="num">${v.toFixed(1)}</b></div><div class="b-track"><i style="--w:${((v - 40) / 59) * 100}%"></i><u style="left:${((avg[k] - 40) / 59) * 100}%"></u></div></div>`).join('')}
-        <div class="b-r full"><div class="b-r-top"><span>Full rating</span><b class="num">${r.full}</b></div><div class="b-track"><i style="--w:${((r.full - 40) / 59) * 100}%"></i></div></div>
-        <p class="b-legend"><u></u> top-100 average</p>
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderBoard(el) {
-  const { list, ratings, avg } = boardRatings(S.players);
-  ui100.avg = avg;
-  const teams = [...new Set(list.map((p) => p.team))].sort();
-  const visible = list.map((p, i) => [p, i + 1]).filter(([p]) => (ui100.role === 'all' || ROLE[p.pos] === ui100.role) && (!ui100.team || p.team === ui100.team));
-  const jumps = [[100, 76], [75, 51], [50, 26], [25, 1]];
-  el.innerHTML = `
-    <div class="b-bar">
-      <div class="b-group"><span>Jump to</span>${jumps.map(([a, b]) => `<button type="button" class="b-chip" data-jump="${b}">${a} to ${b}</button>`).join('')}</div>
-      <div class="b-group"><span>Position</span>${['all', 'Guard', 'Wing', 'Big'].map((r) => `<button type="button" class="b-chip ${ui100.role === r ? 'on' : ''}" data-role="${r}">${r === 'all' ? 'All' : `${r}s`}</button>`).join('')}</div>
-      <div class="b-group"><label for="b-team">Team</label><select id="b-team"><option value="">All teams</option>${teams.map((t) => `<option value="${t}" ${ui100.team === t ? 'selected' : ''}>${esc(TEAM_NAMES[t] || t)}</option>`).join('')}</select></div>
-    </div>
-    <ol class="b-list" reversed>${visible.map(([p, rank]) => boardRow(p, rank, ratings.get(p.id))).join('') || '<li class="empty">No players match.</li>'}</ol>`;
-
-  const reveal = () => motion.then((m) => {
-    if (!m || calm()) return;
-    m.inView(el.querySelectorAll('.b-item'), (info) => {
-      const target = info.target || info;
-      m.animate(target, { opacity: [0, 1], clipPath: ['inset(0 100% 0 0)', 'inset(0 0% 0 0)'] }, { duration: 0.7, ease: [0.22, 1, 0.36, 1], delay: (Number(target.style.getPropertyValue('--i')) % 6) * 0.04 });
-    }, { amount: 0.25 });
-  });
-  reveal();
-
-  el.onclick = (e) => {
-    const jump = e.target.closest('[data-jump]');
-    if (jump) { el.querySelector(`.b-item:nth-last-child(${jump.dataset.jump})`)?.scrollIntoView({ behavior: calm() ? 'auto' : 'smooth', block: 'center' }); return; }
-    const role = e.target.closest('[data-role]');
-    if (role) { ui100.role = role.dataset.role; return renderBoard(el); }
-    const row = e.target.closest('.b-row');
-    if (!row) return;
-    const li = row.closest('.b-item');
-    const id = +li.dataset.id;
-    const detail = li.querySelector('.b-detail');
-    const opening = ui100.open !== id;
-    // close whatever was open
-    const prev = el.querySelector('.b-row[aria-expanded="true"]');
-    if (prev && prev !== row) { prev.setAttribute('aria-expanded', 'false'); const d = prev.parentElement.querySelector('.b-detail'); d.hidden = true; d.innerHTML = ''; }
-    ui100.open = opening ? id : null;
-    row.setAttribute('aria-expanded', String(opening));
-    if (!opening) { detail.hidden = true; detail.innerHTML = ''; return; }
-    const p = byId.get(id), rank = [...el.querySelectorAll('.b-item')].indexOf(li);
-    detail.innerHTML = boardDetail(p, Number(row.querySelector('.b-rank').textContent.replace('.', '')), ratings.get(id));
-    detail.hidden = false;
-    motion.then((m) => {
-      if (!m || calm()) return;
-      const card = detail.querySelector('.b-card');
-      m.animate(card, { opacity: [0, 1], transform: ['translateY(-8px)', 'translateY(0)'] }, { type: 'spring', stiffness: 260, damping: 28 });
-      m.animate(detail.querySelectorAll('.b-track i'), { transform: ['scaleX(0)', 'scaleX(1)'] }, { delay: m.stagger(0.06, { startDelay: 0.15 }), duration: 0.8, ease: [0.22, 1, 0.36, 1] });
-      m.animate(detail.querySelectorAll('.b-stat'), { opacity: [0, 1], transform: ['translateY(6px)', 'translateY(0)'] }, { delay: m.stagger(0.025), duration: 0.35 });
-    });
-    void rank;
-  };
-  el.querySelector('#b-team').onchange = (e) => { ui100.team = e.target.value; renderBoard(el); };
 }
 
 // ---------- first run ----------
@@ -594,72 +458,180 @@ function h2hStandings(w) {
 }
 
 // ---------- rankings ----------
-function renderRankings(app) {
-  const r = ui.rank;
-  const srcs = S.meta.sources;
-  const cols = [
-    { key: 'consensus', label: '#', get: (p) => p.consensus?.rank ?? 9999, title: 'Consensus rank across the outside sources' },
-    { key: 'name', label: 'Player', cls: 'l', get: (p) => p.name },
-    { key: 'avg', label: 'Avg', get: (p) => p.consensus?.avg ?? 9999, title: 'Average rank across sources (± spread)' },
-    ...srcs.map((s, i) => ({ key: `src:${s.key}`, label: s.label, cls: i === 0 ? 'grp' : '', get: (p) => p.ranks[s.key] ?? 9999, title: `${s.full}: ${s.basis}` })),
-    { key: 'model', label: 'Model', cls: 'grp', get: (p) => p.model.rank, title: 'This app\'s rest-of-season rank (value above replacement)' },
-    { key: 'fpg', label: 'Proj FP/G', get: (p) => -p.model.fpg, title: 'Projected fantasy points per game, rest of season' },
-    { key: 'delta', label: 'Δ day', get: (p) => -(p.delta.fpg ?? 0), title: 'Change in projection since the previous daily update' },
-    { key: 'l15', label: 'L15', cls: 'grp', get: (p) => -(p.s.l15?.fp ?? -1), title: 'Fantasy points per game, last 15 days' },
-    { key: 'season', label: 'Season', get: (p) => -(p.s.season?.fp ?? -1), title: 'Fantasy points per game this season' },
-    { key: 'owned', label: 'Rost%', get: (p) => -p.owned, title: 'Rostered in ESPN leagues' },
-  ];
-  const col = cols.find((c) => c.key === r.sort) || cols[0];
-  const q = r.q.trim().toLowerCase();
-  let rows = S.players.filter((p) => (!q || p.name.toLowerCase().includes(q) || p.team.toLowerCase() === q)
-    && (!r.pos || p.pos === r.pos)
-    && (r.show === 'all' || (r.show === 'mine' && p.own.type === 'mine') || (r.show === 'fa' && (p.own.type === 'fa' || (p.own.type === 'unknown' && p.owned < 60)))));
-  rows.sort((a, b) => {
-    const x = col.get(a), y = col.get(b);
-    return (typeof x === 'string' ? x.localeCompare(y) : x - y) * r.dir || a.model.rank - b.model.rank;
-  });
-  const total = rows.length;
-  rows = rows.slice(0, r.limit);
-  const scoring = Object.entries(S.meta.scoring).map(([k, v]) => `${S.statLabels[k] || k} ${signed(v, Number.isInteger(v) ? 0 : 1)}`).join(' · ');
+// One ranked list in the style of Bleacher Report's NBA 100. Each row carries the numbers you
+// scan (projection, recent form, ownership, today's change); opening it shows every source's rank,
+// the read on the player and a rating breakdown.
+const TEAM_NAMES = { ATL: 'Hawks', BOS: 'Celtics', BKN: 'Nets', CHA: 'Hornets', CHI: 'Bulls', CLE: 'Cavaliers', DAL: 'Mavericks', DEN: 'Nuggets', DET: 'Pistons', GSW: 'Warriors', HOU: 'Rockets', IND: 'Pacers', LAC: 'Clippers', LAL: 'Lakers', MEM: 'Grizzlies', MIA: 'Heat', MIL: 'Bucks', MIN: 'Timberwolves', NOP: 'Pelicans', NYK: 'Knicks', OKC: 'Thunder', ORL: 'Magic', PHI: '76ers', PHX: 'Suns', POR: 'Trail Blazers', SAC: 'Kings', SAS: 'Spurs', TOR: 'Raptors', UTA: 'Jazz', WAS: 'Wizards', FA: 'Free agent' };
+const headshot = (p) => (DEMO ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=150&h=110&cb=1`);
 
-  app.innerHTML = `
-    <div class="page-head">
-      <div><h1>Player rankings</h1>
-        <p>Five ranking desks beside Pivot's own projection. Hover a column for its source. <span class="muted">Scoring: ${esc(scoring)}</span> <span class="chip plain">${S.meta.scoringSource === 'league' ? 'from your league' : S.meta.scoringSource === 'custom' ? 'custom' : 'ESPN default'}</span></p></div>
-      <div class="controls">
-        <input type="search" id="q" placeholder="Search player or team" value="${esc(r.q)}">
-        <select id="pos"><option value="">All positions</option>${['PG', 'SG', 'SF', 'PF', 'C'].map((x) => `<option ${r.pos === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
-        <div class="seg" id="show">${[['all', 'All'], ['mine', 'My team'], ['fa', S.league ? 'Free agents' : 'Widely available']].map(([k, l]) => `<button data-v="${k}" class="${r.show === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+// Ratings: Pivot's model rank stretched onto 99 down to 40, and each skill as a percentile among
+// the top 150, on the same scale. Cached per dataset.
+let ratingCache = null;
+function playerRatings() {
+  if (ratingCache?.players === S.players) return ratingCache;
+  const pool = [...S.players].filter((p) => p.team !== 'FA').sort((a, b) => a.model.rank - b.model.rank).slice(0, 150);
+  const cats = {
+    Scoring: (p) => (p.s.season?.pts ?? p.s.proj?.pts ?? 0) + (p.s.season?.tpm ?? 0) * 0.5,
+    Playmaking: (p) => (p.s.season?.ast ?? p.s.proj?.ast ?? 0) - 0.5 * (p.s.season?.to ?? 0),
+    Rebounding: (p) => p.s.season?.reb ?? p.s.proj?.reb ?? 0,
+    Defense: (p) => (p.s.season?.stl ?? 0) + (p.s.season?.blk ?? 0),
+    Availability: (p) => p.avail.games,
+  };
+  const scale = (vals) => { const sorted = [...vals].sort((a, b) => a - b); return (v) => 40 + 59 * Math.max(0, sorted.filter((x) => x <= v).length - 1) / Math.max(1, sorted.length - 1); };
+  const scales = Object.fromEntries(Object.entries(cats).map(([k, f]) => [k, scale(pool.map(f))]));
+  const top = pool.slice(0, 100);
+  const avg = Object.fromEntries(Object.keys(cats).map((k) => [k, top.reduce((a, p) => a + scales[k](cats[k](p)), 0) / Math.max(1, top.length)]));
+  const of = new Map(S.players.map((p) => [p.id, {
+    full: Math.max(40, Math.round(99 - ((p.model.rank - 1) * 39) / 149)),
+    cats: Object.fromEntries(Object.keys(cats).map((k) => [k, Math.round(scales[k](cats[k](p)) * 10) / 10])),
+  }]));
+  ratingCache = { players: S.players, of, avg };
+  return ratingCache;
+}
+
+const SORTS = {
+  consensus: ['Consensus rank', (p) => p.consensus?.rank ?? 9999],
+  model: ["Pivot's rank", (p) => p.model.rank],
+  fpg: ['Projected FP/G', (p) => -p.model.fpg],
+  l15: ['Last 15 days', (p) => -(p.s.l15?.fp ?? -1)],
+  season: ['Season FP/G', (p) => -(p.s.season?.fp ?? -1)],
+  delta: ['Change today', (p) => -(p.delta.fpg ?? 0)],
+  owned: ['Rostered %', (p) => -p.owned],
+  name: ['Name', (p) => p.name],
+};
+
+function rankRow(p, n, R) {
+  const r = R.of.get(p.id);
+  const inj = INJ[p.injuryStatus];
+  const call = p.signal ? `<span class="b-call ${p.signal.type}">${p.signal.type === 'buy' ? 'Buy low' : 'Sell high'}</span>` : '';
+  const pic = headshot(p);
+  const open = ui.rank.open === p.id;
+  const dl = p.delta.fpg;
+  return `<li class="b-item" data-id="${p.id}" style="--i:${n % 25}">
+    <button type="button" class="b-row r-row" aria-expanded="${open}" aria-controls="r-d-${p.id}">
+      <span class="b-rank">${n}.</span>
+      <span class="b-pic">${pic ? `<img src="${esc(pic)}" alt="" loading="lazy" onerror="this.remove()">` : ''}<i aria-hidden="true">${esc(p.name.split(' ').map((w) => w[0]).slice(0, 2).join(''))}</i></span>
+      <span class="b-who"><b>${esc(p.name)}</b>, ${esc(TEAM_NAMES[p.team] || p.team)}, ${esc(p.pos)}${inj ? ` <span class="chip inj ${inj[1]}">${inj[0]}</span>` : ''} ${ownChip(p.own)}${call ? `<br>${call}` : ''}</span>
+      <span class="r-nums">
+        <span><small>Proj</small><b class="num">${fmt(p.model.fpg)}</b></span>
+        <span><small>Last 15</small><b class="num">${fmt(p.s.l15?.fp)}</b></span>
+        <span><small>Season</small><b class="num">${fmt(p.s.season?.fp)}</b></span>
+        <span><small>Today</small><b class="num ${dl > 0 ? 'up' : dl < 0 ? 'down' : 'muted'}">${dl ? signed(dl) : '–'}</b></span>
+        <span><small>Rost</small><b class="num">${fmt(p.owned, 0)}%</b></span>
+      </span>
+      <span class="b-rating" title="Pivot's rating, from its rest-of-season rank (${p.model.rank})"><small>Rating</small><b>${r.full}</b></span>
+    </button>
+    <div class="b-detail" id="r-d-${p.id}" ${open ? '' : 'hidden'}>${open ? rankDetail(p, n, R) : ''}</div>
+  </li>`;
+}
+
+function rankDetail(p, n, R) {
+  const r = R.of.get(p.id), avg = R.avg;
+  const s = p.s.season || p.s.proj || {};
+  const read = p.signal ? p.signal.reasons.slice(0, 2) : p.model.reasons.slice(0, 2);
+  const question = p.avail.note ? `${p.avail.note}.`
+    : p.avail.durability <= 0.74 ? `Can he stay on the floor? Pivot expects him to play about ${Math.round(p.avail.durability * 100)}% of his remaining games.`
+    : p.model.sd > 5 ? `How stable is this? The model's typical miss for him is ±${fmt(p.model.sd)} FP/G.`
+    : `Whether he holds this pace: ${fmt(p.form?.last5)} FP/G over his last five against ${fmt(p.model.fpg)} projected.`;
+  const stat = (k, v) => `<div class="b-stat"><small>${k}</small><b>${v}</b></div>`;
+  const srcs = S.meta.sources;
+  return `<div class="b-card">
+    <div class="b-head"><span class="b-rank big">${n}.</span><h3>${esc(p.name)}</h3><span class="muted">${esc(TEAM_NAMES[p.team] || p.team)}${p.jersey ? ` · #${esc(p.jersey)}` : ''}</span></div>
+    <div class="b-stats">
+      ${stat('Projection', `${fmt(p.model.fpg)} <em>FP/G</em>`)}${stat('Next games', `${fmt(p.model.next)} <em>FP/G</em>`)}${stat('Minutes', fmt(p.model.min))}${stat('Games left', fmt(p.avail.games, 0))}
+      ${stat('PTS', fmt(s.pts))}${stat('REB', fmt(s.reb))}${stat('AST', fmt(s.ast))}${stat('STL + BLK', fmt((s.stl || 0) + (s.blk || 0)))}
+    </div>
+    <div class="r-sources" role="table" aria-label="Rank by source">
+      <div role="row" class="r-src-head"><span role="columnheader">Consensus</span>${srcs.map((x) => `<span role="columnheader" title="${esc(`${x.full}: ${x.basis}`)}">${esc(x.label)}</span>`).join('')}<span role="columnheader">Pivot</span></div>
+      <div role="row"><span role="cell"><b>${p.consensus ? p.consensus.rank : '–'}</b>${p.consensus ? `<em>avg ${fmt(p.consensus.avg)} ±${fmt(p.consensus.sd, 0)}</em>` : ''}</span>${srcs.map((x) => `<span role="cell"><b>${p.ranks[x.key] ?? '–'}</b></span>`).join('')}<span role="cell"><b>${p.model.rank}</b>${p.delta.rank ? `<em class="${p.delta.rank > 0 ? 'up' : 'down'}">${p.delta.rank > 0 ? '▲' : '▼'} ${Math.abs(p.delta.rank)} today</em>` : ''}</span></div>
+    </div>
+    <p class="b-note">${p.s.season ? `This season, ${p.s.season.gp} games` : 'Preseason projection'}${p.age ? ` · age ${p.age}` : ''} · rostered in ${fmt(p.owned, 0)}% of ESPN leagues</p>
+    <div class="b-cols">
+      <div>
+        <h4>Pivot's read</h4>
+        ${read.map((x) => `<p>${esc(x)}.</p>`).join('')}
+        <h4>Biggest question</h4>
+        <p>${esc(question)}</p>
+        <div class="b-actions"><button type="button" class="btn small" data-player="${p.id}">Full profile</button><button type="button" class="btn small" data-mock="${p.id}">Mock offers</button></div>
+      </div>
+      <div class="b-ratings">
+        ${Object.entries(r.cats).map(([k, v]) => `<div class="b-r"><div class="b-r-top"><span>${k}</span><b class="num">${v.toFixed(1)}</b></div><div class="b-track"><i style="--w:${((v - 40) / 59) * 100}%"></i><u style="left:${((avg[k] - 40) / 59) * 100}%"></u></div></div>`).join('')}
+        <div class="b-r full"><div class="b-r-top"><span>Full rating</span><b class="num">${r.full}</b></div><div class="b-track"><i style="--w:${((r.full - 40) / 59) * 100}%"></i></div></div>
+        <p class="b-legend"><u></u> top-100 average</p>
       </div>
     </div>
-    <div class="panel"><div class="table-wrap"><table>
-      <thead><tr>${cols.map((c) => `<th class="${c.cls || ''} ${c.key === r.sort ? 'sorted' : ''}" data-sort="${c.key}" title="${esc(c.title || '')}">${esc(c.label)}${c.key === r.sort ? (r.dir === 1 ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr></thead>
-      <tbody>${rows.map((p) => `<tr data-player="${p.id}">
-        <td class="rank">${p.consensus?.rank ?? '–'}</td>
-        <td class="l">${playerCell(p)}</td>
-        <td>${p.consensus ? `${fmt(p.consensus.avg)} <span class="spread">±${fmt(p.consensus.sd, 0)}</span>` : '–'}</td>
-        ${srcs.map((s, i) => `<td class="${i === 0 ? 'grp' : ''}">${p.ranks[s.key] ?? '<span class="muted">–</span>'}</td>`).join('')}
-        <td class="grp strong">${p.model.rank}</td>
-        <td class="strong">${fmt(p.model.fpg)}</td>
-        <td class="${p.delta.fpg > 0 ? 'up' : p.delta.fpg < 0 ? 'down' : 'muted'}">${p.delta.fpg ? signed(p.delta.fpg) : '–'}</td>
-        <td class="grp">${fmt(p.s.l15?.fp)}</td>
-        <td>${fmt(p.s.season?.fp)}</td>
-        <td class="muted">${fmt(p.owned, 0)}</td>
-      </tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">${r.show === 'mine' && !S.hasRoster ? 'No roster yet. Add your league or players in Settings.' : 'No players match.'}</td></tr>`}</tbody>
-    </table></div>
-    ${total > rows.length ? `<div class="empty"><button class="btn small" id="more">Show all ${total} players</button></div>` : ''}</div>
-    <p class="muted" style="margin-top:10px;font-size:12px">${S.meta.comparedTo ? `Δ day compares with the ${esc(S.meta.comparedTo)} update.` : 'Δ day fills in after tomorrow\'s update, once there is a previous day to compare with.'} Replacement level: ${fmt(S.meta.repl)} FP/G.</p>`;
+  </div>`;
+}
 
-  $('#q').oninput = (e) => { r.q = e.target.value; renderRankings(app); const el = $('#q'); el.focus(); el.setSelectionRange(r.q.length, r.q.length); };
-  $('#pos').onchange = (e) => { r.pos = e.target.value; renderRankings(app); };
-  $('#show').onclick = (e) => { if (e.target.dataset.v) { r.show = e.target.dataset.v; renderRankings(app); } };
-  $('thead', app).onclick = (e) => {
-    const k = e.target.closest('th')?.dataset.sort;
-    if (!k) return;
-    if (r.sort === k) r.dir *= -1; else { r.sort = k; r.dir = 1; }
-    renderRankings(app);
+function renderRankings(app) {
+  const r = ui.rank;
+  r.limit ||= 100;
+  const R = playerRatings();
+  const q = r.q.trim().toLowerCase();
+  const [, key] = SORTS[r.sort] || SORTS.consensus;
+  let rows = S.players.filter((p) => (!q || p.name.toLowerCase().includes(q) || p.team.toLowerCase() === q || (TEAM_NAMES[p.team] || '').toLowerCase().includes(q))
+    && (!r.pos || p.pos === r.pos)
+    && (r.show === 'all' || (r.show === 'mine' && p.own.type === 'mine') || (r.show === 'fa' && (p.own.type === 'fa' || (p.own.type === 'unknown' && p.owned < 60)))));
+  rows.sort((a, b) => { const x = key(a), y = key(b); return (typeof x === 'string' ? x.localeCompare(y) : x - y) || a.model.rank - b.model.rank; });
+  const total = rows.length;
+  rows = rows.slice(0, r.limit);
+  const scoring = Object.entries(S.meta.scoring).map(([k, v]) => `${S.statLabels[k] || k} ${signed(v, Number.isInteger(v) ? 0 : 1)}`).join(', ');
+  const srcs = S.meta.sources.map((s) => s.full).join(', ');
+  const jumps = [[1, 25], [26, 50], [51, 75], [76, 100]].filter(([a]) => a <= rows.length);
+
+  app.innerHTML = `
+    <div class="page-head"><div><h1>Rankings</h1>
+      <p>${esc(srcs)} combined into one consensus, next to Pivot's own projection. Open a player for every source's rank and the read on him. <span class="muted">Scoring: ${esc(scoring)}</span></p></div></div>
+    <div class="b-bar">
+      <div class="b-group"><label for="q">Search</label><input type="search" id="q" placeholder="Player or team" value="${esc(r.q)}"></div>
+      <div class="b-group"><span>Position</span>${['', 'PG', 'SG', 'SF', 'PF', 'C'].map((x) => `<button type="button" class="b-chip ${r.pos === x ? 'on' : ''}" data-pos="${x}">${x || 'All'}</button>`).join('')}</div>
+      <div class="b-group"><span>Show</span>${[['all', 'All'], ['mine', 'My team'], ['fa', S.league ? 'Free agents' : 'Available']].map(([k, l]) => `<button type="button" class="b-chip ${r.show === k ? 'on' : ''}" data-show="${k}">${l}</button>`).join('')}</div>
+      <div class="b-group"><label for="sort">Sort by</label><select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${r.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      ${jumps.length > 1 ? `<div class="b-group"><span>Jump to</span>${jumps.map(([a, b]) => `<button type="button" class="b-chip" data-jump="${a}">${a} to ${Math.min(b, rows.length)}</button>`).join('')}</div>` : ''}
+    </div>
+    <ol class="b-list">${rows.map((p, i) => rankRow(p, i + 1, R)).join('') || `<li class="empty">${r.show === 'mine' && !S.hasRoster ? 'No roster yet. Connect your league in Settings.' : 'No players match.'}</li>`}</ol>
+    ${total > rows.length ? `<div class="empty"><button class="btn" id="more">Show ${Math.min(100, total - rows.length)} more of ${total}</button></div>` : ''}
+    <p class="chart-note" style="margin-top:14px">${S.meta.comparedTo ? `"Today" compares with the ${esc(S.meta.comparedTo)} update.` : '"Today" fills in after tomorrow\'s update.'} Replacement level: ${fmt(S.meta.repl)} FP/G. Ratings are Pivot's, from its rest-of-season rank and each skill's percentile among the top 150.</p>`;
+
+  motion.then((m) => {
+    if (!m || calm()) return;
+    m.inView(app.querySelectorAll('.b-item'), (el) => {
+      const target = el.target || el;
+      m.animate(target, { opacity: [0, 1], clipPath: ['inset(0 100% 0 0)', 'inset(0 0% 0 0)'] }, { duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: (Number(target.style.getPropertyValue('--i')) % 6) * 0.035 });
+    }, { amount: 0.2 });
+  });
+
+  const rerender = () => { renderRankings(app); };
+  $('#q').oninput = (e) => { r.q = e.target.value; r.limit = 100; rerender(); const el = $('#q'); el.focus(); el.setSelectionRange(r.q.length, r.q.length); };
+  $('#sort').onchange = (e) => { r.sort = e.target.value; rerender(); };
+  if ($('#more')) $('#more').onclick = () => { r.limit += 100; rerender(); };
+  app.onclick = (e) => {
+    const pos = e.target.closest('[data-pos]');
+    if (pos) { r.pos = pos.dataset.pos; return rerender(); }
+    const show = e.target.closest('[data-show]');
+    if (show) { r.show = show.dataset.show; return rerender(); }
+    const jump = e.target.closest('[data-jump]');
+    if (jump) { app.querySelectorAll('.b-item')[+jump.dataset.jump - 1]?.scrollIntoView({ behavior: calm() ? 'auto' : 'smooth', block: 'center' }); return; }
+    const row = e.target.closest('.r-row');
+    if (!row) return;
+    const li = row.closest('.b-item');
+    const id = +li.dataset.id;
+    const detail = li.querySelector('.b-detail');
+    const opening = r.open !== id;
+    const prev = app.querySelector('.r-row[aria-expanded="true"]');
+    if (prev && prev !== row) { prev.setAttribute('aria-expanded', 'false'); const d = prev.parentElement.querySelector('.b-detail'); d.hidden = true; d.innerHTML = ''; }
+    r.open = opening ? id : null;
+    row.setAttribute('aria-expanded', String(opening));
+    if (!opening) { detail.hidden = true; detail.innerHTML = ''; return; }
+    detail.innerHTML = rankDetail(byId.get(id), Number(row.querySelector('.b-rank').textContent.replace('.', '')), R);
+    detail.hidden = false;
+    motion.then((m) => {
+      if (!m || calm()) return;
+      m.animate(detail.querySelector('.b-card'), { opacity: [0, 1], transform: ['translateY(-8px)', 'translateY(0)'] }, { type: 'spring', stiffness: 260, damping: 28 });
+      m.animate(detail.querySelectorAll('.b-track i'), { transform: ['scaleX(0)', 'scaleX(1)'] }, { delay: m.stagger(0.06, { startDelay: 0.15 }), duration: 0.8, ease: [0.22, 1, 0.36, 1] });
+      m.animate(detail.querySelectorAll('.b-stat, .r-sources [role=cell]'), { opacity: [0, 1], transform: ['translateY(6px)', 'translateY(0)'] }, { delay: m.stagger(0.02), duration: 0.32 });
+    });
   };
-  if ($('#more')) $('#more').onclick = () => { r.limit = 9999; renderRankings(app); };
 }
 
 // ---------- charts ----------
