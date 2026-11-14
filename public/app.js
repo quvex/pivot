@@ -117,7 +117,7 @@ let lastTab = null;
 function render() {
   renderChrome();
   const tab = (location.hash || '#home').slice(1);
-  if (tab !== 'home') { unmountStage?.(); unmountStage = null; }
+  unmountStage?.(); unmountStage = null;
   document.body.dataset.page = tab;
   document.body.classList.toggle('demo', DEMO);
   if (tab !== lastTab && lastTab !== null && !calm()) {
@@ -257,15 +257,18 @@ let unmountStage = null;
 function renderHome(app) {
   const w = S.week, me = w?.teams.find((t) => t.mine), leader = w?.teams[0];
   const movers = S.players.filter((p) => p.signal).sort((a, b) => b.signal.score - a.signal.score).slice(0, 9);
-  // the court shows a possession: the most mispriced player at each position
+  // two teams take the floor: the most underpriced player at each position, and the most overpriced
   const pool = S.players.filter((p) => p.s.season?.gp >= 3 && p.model.rank <= 140 && p.team !== 'FA')
     .map((p) => ({ p, d: p.model.fpg - p.market.recent })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
-  const used = new Set();
-  const arc = ['PG', 'SG', 'SF', 'PF', 'C'].map((slot) => {
-    const pick = pool.find(({ p }) => p.pos === slot && !used.has(p.id)) || pool.find(({ p }) => !used.has(p.id));
-    if (pick) used.add(pick.p.id);
-    return pick && { ...pick, slot };
-  }).filter(Boolean);
+  const team = (sign) => {
+    const side = pool.filter(({ d }) => Math.sign(d) === sign), used = new Set();
+    return ['PG', 'SG', 'SF', 'PF', 'C'].map((slot) => {
+      const pick = side.find(({ p }) => p.pos === slot && !used.has(p.id)) || side.find(({ p }) => !used.has(p.id));
+      if (pick) used.add(pick.p.id);
+      return pick && { id: pick.p.id, name: pick.p.name, fpg: pick.p.model.fpg, gap: pick.d, slot, jersey: pick.p.jersey || '', height: pick.p.height || 79, weight: pick.p.weight || 220 };
+    }).filter(Boolean);
+  };
+  const teams = { under: team(1), over: team(-1) };
   const moves = (w?.my?.advice || []).slice(0, 3).map((a) => a.split(/: (?=[a-z])/)[0].replace(/\.$/, ''));
   const today = new Date(DEMO ? S.meta.refreshedAt : Date.now()).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const m = myMatchup(w);
@@ -280,24 +283,26 @@ function renderHome(app) {
         <div><b class="num">${me.rank === 1 ? 'Lead' : `−${(leader.points - me.points).toLocaleString('en-US')}`}</b><span>${me.rank === 1 ? `by ${(me.points - w.teams[1].points).toLocaleString('en-US')}` : `to ${esc(leader.name)}`}</span></div></div>`;
 
   app.innerHTML = `
-    <section class="stage" id="stage" data-beat="a">
+    <section class="stage court" id="stage">
       <div class="stage-pin">
-        <canvas id="court" aria-hidden="true"></canvas>
+        <canvas id="court" aria-label="Engraved basketball court with the most underpriced players on the right half and the most overpriced on the left"></canvas>
         <div class="col-labels" id="col-labels"></div>
-        <div class="beat beat-a">
-          <h1 class="wordmark">Pivot</h1>
-          <p>Your league, priced every morning.</p>
+        <div class="court-ui">
+          <h1>Where the market is <i>wrong</i></h1>
+          <div class="court-seg" role="group" aria-label="Show">
+            <button type="button" data-view="over">Overpriced</button><button type="button" data-view="court" class="on">Both sides</button><button type="button" data-view="under">Underpriced</button>
+          </div>
+          <p class="court-hint">${innerWidth < 760 ? 'Swipe sideways to turn the court. Tap a player.' : 'Drag to turn the court. Click a player.'}</p>
         </div>
-        <div class="beat beat-b">
-          <h2>Where the market is <i>wrong</i></h2>
-          <p>The most mispriced player at each position, set up for a possession and built to his real height. The ring at his feet grows with his projection. Click a name for the details.</p>
-        </div>
-        <aside class="jumbotron" aria-label="Today">
-          <p class="today-date">${esc(today)}${me ? ` · ${esc(me.name)}` : ''}</p>
-          ${me ? `${board}
-            ${moves.length ? `<ol class="moves">${moves.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : '<p class="muted">Nothing needs action today.</p>'}
-            <a class="more" href="#week">${m ? 'See the matchup' : 'Plan the week'} <span aria-hidden="true">→</span></a>`
-          : `<p>Sync your ESPN league to see your standing and today's moves.</p><a class="more" href="#settings">Sync league <span aria-hidden="true">→</span></a>`}
+        <aside class="jumbotron" id="court-panel" aria-live="polite">
+          <div id="panel-day">
+            <p class="today-date">${esc(today)}${me ? ` · ${esc(me.name)}` : ''}</p>
+            ${me ? `${board}
+              ${moves.length ? `<ol class="moves">${moves.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : '<p class="muted">Nothing needs action today.</p>'}
+              <a class="more" href="#week">${m ? 'See the matchup' : 'Plan the week'} <span aria-hidden="true">→</span></a>`
+            : `<p>Sync your ESPN league to see your standing and today's moves.</p><a class="more" href="#settings">Sync league <span aria-hidden="true">→</span></a>`}
+          </div>
+          <div id="panel-player" hidden></div>
         </aside>
       </div>
     </section>
@@ -317,14 +322,38 @@ function renderHome(app) {
   const stage = $('#stage');
   unmountStage?.();
   unmountStage = null;
-  import('./stage.js').then(({ mountStage }) => {
+  const panelDay = $('#panel-day'), panelPlayer = $('#panel-player');
+  const showPlayer = (pl) => {
+    if (!pl) { panelPlayer.hidden = true; panelDay.hidden = false; return; }
+    const p = byId.get(pl.id);
+    const under = pl.side === 'under';
+    panelPlayer.innerHTML = `
+      <p class="today-date">${under ? 'Underpriced · buy' : 'Overpriced · sell'} · ${esc(pl.slot)}</p>
+      <h3 class="pp-name">${esc(p.name)}${p.jersey ? ` <span>#${esc(p.jersey)}</span>` : ''}</h3>
+      <p class="muted">${esc(TEAM_NAMES[p.team] || p.team)} ${ownChip(p.own)}</p>
+      <div class="board">
+        <div><b class="num">${fmt(p.model.fpg)}</b><span>projected FP/G</span></div>
+        <div><b class="num">${fmt(p.market.recent)}</b><span>recent production</span></div>
+        <div><b class="num ${under ? 'up' : 'down'}">${under ? '+' : '−'}${fmt(Math.abs(pl.gap))}</b><span>${under ? 'Pivot sees more' : 'Pivot sees less'}</span></div>
+      </div>
+      ${p.signal ? `<p class="pp-why">${esc(p.signal.reasons[0])}.</p>` : `<p class="pp-why">${esc(p.model.reasons[0] || '')}.</p>`}
+      <div class="b-actions"><button type="button" class="btn small primary" data-player="${p.id}">Full profile</button><button type="button" class="btn small" data-mock="${p.id}">Mock offers</button><button type="button" class="btn small" data-court-close>Back</button></div>`;
+    panelDay.hidden = true; panelPlayer.hidden = false;
+    motion.then((mo) => { if (mo && !calm()) mo.animate(panelPlayer, { opacity: [0, 1], transform: ['translateY(8px)', 'translateY(0)'] }, { type: 'spring', stiffness: 300, damping: 30 }); });
+  };
+  const seg = stage.querySelectorAll('[data-view]');
+  // the floor lettering is drawn in Bodoni Moda, so wait for the font
+  Promise.all([import('./stage.js'), document.fonts?.ready]).then(([{ mountStage }]) => {
     if (!stage.isConnected) return;
-    unmountStage = mountStage({
-      canvas: $('#court'), labels: $('#col-labels'), section: stage,
-      players: arc.map(({ p, d, slot }) => ({ id: p.id, name: p.name, fpg: p.model.fpg, gap: d, slot, jersey: p.jersey || '', height: p.height || 79, weight: p.weight || 220, face: DEMO ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=350&h=254` })),
-      onPick: (id) => openPlayer(id),
-      onPhase: (pr) => { stage.dataset.beat = pr < 0.2 ? 'a' : pr < 0.74 ? 'b' : 'c'; },
+    const ctl = mountStage({
+      canvas: $('#court'), labels: $('#col-labels'), section: stage, teams,
+      avoid: () => [stage.querySelector('.court-ui'), $('#court-panel')].filter(Boolean).map((el) => el.getBoundingClientRect()),
+      onSelect: showPlayer,
+      onView: (name) => seg.forEach((b) => b.classList.toggle('on', b.dataset.view === name)),
     });
+    unmountStage = () => ctl.destroy();
+    seg.forEach((b) => { b.onclick = () => ctl.view(b.dataset.view); });
+    stage.addEventListener('click', (e) => { if (e.target.closest('[data-court-close]')) ctl.select(null); });
   }).catch(() => stage.classList.add('no-webgl'));
   loadHomeOffer();
   app.onclick = (e) => {

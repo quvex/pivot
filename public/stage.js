@@ -1,13 +1,12 @@
 // The front page's etched court. The scene is lit and rendered in greys, then a post-process
 // shader redraws it as an engraving: purple ink on cream paper, with cross-hatching that gets
-// denser in shadow and outlines found from the depth buffer. The players are posed figures
-// wearing their real numbers, each standing on a ring sized by his projection.
-// GSAP ScrollTrigger maps scroll to one progress value that moves the camera.
+// denser in shadow and outlines found from the depth buffer.
+// Two teams take the floor: the most underpriced player at each position on the right, the most
+// overpriced on the left, each built to his real height and wearing his number, on a ring sized
+// by his projection. Drag to turn the court; click a player to pick him out. GSAP drives the
+// camera moves and the selection.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/+esm';
 import { gsap } from 'https://cdn.jsdelivr.net/npm/gsap@3.12.5/+esm';
-import { ScrollTrigger } from 'https://cdn.jsdelivr.net/npm/gsap@3.12.5/ScrollTrigger/+esm';
-
-gsap.registerPlugin(ScrollTrigger);
 
 const COURT = { L: 28.65, W: 15.24 };
 const HOOP_X = COURT.L / 2 - 1.575;
@@ -51,6 +50,12 @@ function courtTexture() {
   g.beginPath(); g.moveTo(c.width / 2, 0); g.lineTo(c.width / 2, c.height); g.stroke();
   g.beginPath(); g.arc(c.width / 2, cy, px(1.8), 0, Math.PI * 2); g.stroke();
   g.strokeRect(2, 2, c.width - 4, c.height - 4);
+  g.fillStyle = '#1a1a1a';
+  g.font = `italic 400 ${Math.round(1.05 * S)}px "Bodoni Moda", "Didot", serif`;
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'center';
+  g.fillText('Overpriced', c.width * 0.25, 1.55 * S);
+  g.fillText('Underpriced', c.width * 0.75, 1.55 * S);
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 8;
   return tex;
@@ -67,11 +72,11 @@ const POSES = {
   set: { lift: 0, lean: 0.12, thigh: [-0.35, -0.3], knee: [0.55, 0.5], spread: 0.1, arm: [[-1.1, 0.25], [-1.1, 0.25]], elbow: [-1.3, -1.3] },
 };
 
-function numberDecal(num) {
+function numberDecal(num, ink = '#111') {
   const c = document.createElement('canvas');
   c.width = 128; c.height = 128;
   const g = c.getContext('2d');
-  g.fillStyle = '#111';
+  g.fillStyle = ink;
   g.font = '400 96px "Bodoni Moda", "Didot", serif';
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText(num, 64, 70);
@@ -118,7 +123,7 @@ function makePlayer(poseName, jersey, mats) {
   spine.add(torso);
   if (jersey) {
     for (const z of [0.142, -0.142]) {
-      const d = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.26), numberDecal(jersey));
+      const d = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.26), numberDecal(jersey, mats.ink));
       d.position.set(0, 0.34, z);
       if (z < 0) d.rotation.y = Math.PI;
       spine.add(d);
@@ -193,31 +198,22 @@ const ENGRAVE = {
     }`,
 };
 
-// ---------- camera path ----------
-const SHOTS = [
-  { pos: [-3, 12.5, 18.5], look: [5, 0.4, 0] },      // across the half court, players set for a possession
-  { pos: [3.8, 2.6, 8.6], look: [10.2, 1.25, 0.2] }, // down among them
-  { pos: [1, 23, 10], look: [4.5, 0, 0] },           // up and away
-];
-const ease = (t) => t * t * (3 - 2 * t);
-const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
-function shot(p, aspect) {
-  const seg = p < 0.5 ? 0 : 1;
-  const t = ease(Math.min(1, Math.max(0, (p - seg * 0.5) / 0.5)));
-  const pos = mix(SHOTS[seg].pos, SHOTS[seg + 1].pos, t), look = mix(SHOTS[seg].look, SHOTS[seg + 1].look, t);
-  const k = aspect < 1 ? Math.min(1.55, 1.1 / aspect) : 1;
-  const aim = aspect < 1 ? [look[0], look[1] + 1.6, look[2]] : look;
-  return { pos: pos.map((v, i) => look[i] + (v - look[i]) * k), look: aim };
-}
-
-// where players stand, relative to the hoop (x toward half court, z across)
-// PG brings it up top, the wings spot up, the four sets a screen at the elbow, the five posts on the block
+// ---------- the two teams ----------
+// Underpriced players attack the right hoop, overpriced players the left. Spots are measured from
+// the hoop each side attacks (x toward half court, z across the floor).
 const SPOTS = { PG: [7.5, 0.6], SG: [5.6, 4.6], SF: [1.6, -6.5], PF: [4.7, -2.0], C: [1.25, 1.9] };
 const POSES_BY_SLOT = { PG: 'dribble', SG: 'jumpshot', SF: 'set', PF: 'defend', C: 'post' };
 const SLOT_NAMES = { PG: 'Point guard', SG: 'Shooting guard', SF: 'Small forward', PF: 'Power forward', C: 'Center' };
 
-// players: [{ id, name, fpg, gap, slot, jersey, height (in), weight (lb), face (headshot url or '') }]
-export function mountStage({ canvas, labels, section, players, onPick, onPhase }) {
+// ---------- camera: three framings, plus whatever the user drags to ----------
+const VIEWS = {
+  court: { target: [0, 0, 1.2], radius: 34, polar: 0.84, az: 0 },
+  under: { target: [HOOP_X - 4.6, 0.9, 0.3], radius: 13.5, polar: 1.12, az: -0.62 },
+  over: { target: [-(HOOP_X - 4.6), 0.9, -0.3], radius: 13.5, polar: 1.12, az: Math.PI - 0.62 },
+};
+
+// teams: { under: [player], over: [player] }, each player { id, name, fpg, gap, slot, jersey, height, weight }
+export function mountStage({ canvas, labels, section, teams, onSelect, onView, avoid }) {
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const small = innerWidth < 760;
   let renderer;
@@ -225,7 +221,7 @@ export function mountStage({ canvas, labels, section, players, onPick, onPhase }
     renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   } catch {
     section.classList.add('no-webgl');
-    return () => {};
+    return { destroy() {}, view() {}, select() {} };
   }
   const dpr = Math.min(devicePixelRatio, small ? 1.5 : 2);
   renderer.setPixelRatio(dpr);
@@ -234,101 +230,103 @@ export function mountStage({ canvas, labels, section, players, onPick, onPhase }
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(1, 1, 1);
-  scene.fog = new THREE.Fog(0xffffff, 26, 48);
-  const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 90);
+  scene.fog = new THREE.Fog(0xffffff, 32, 60);
+  const camera = new THREE.PerspectiveCamera(36, 1, 0.5, 120);
 
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(COURT.L, COURT.W), new THREE.MeshLambertMaterial({ map: courtTexture() }));
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
-  // hoop: post, arm, board with its shooter's square, rim and a corded net
+  // a hoop at each end
   const steel = new THREE.MeshLambertMaterial({ color: grey(0.35) });
-  const hoop = new THREE.Group();
-  const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 3.3, 0.22), steel); post.position.set(1.25, 1.65, 0);
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.14, 0.14), steel); arm.position.set(0.68, 3.2, 0);
-  const board = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.07, 1.83), new THREE.MeshLambertMaterial({ color: grey(0.95) })); board.position.set(0, 3.35, 0);
-  const square = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.45, 0.6), new THREE.MeshLambertMaterial({ color: grey(0.2) })); square.position.set(-0.01, 3.2, 0);
-  const inner = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.38, 0.52), new THREE.MeshLambertMaterial({ color: grey(0.95) })); inner.position.set(-0.012, 3.2, 0);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.02, 8, 36), new THREE.MeshLambertMaterial({ color: grey(0.15) }));
-  rim.rotation.x = Math.PI / 2; rim.position.set(-0.38, 3.05, 0);
-  const net = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.14, 0.42, 14, 3, true), new THREE.MeshLambertMaterial({ color: grey(0.75), wireframe: true }));
-  net.position.set(-0.38, 2.83, 0);
-  hoop.add(post, arm, board, square, inner, rim, net);
-  hoop.position.x = COURT.L / 2 - 1.2;
-  hoop.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  scene.add(hoop);
+  for (const side of [-1, 1]) {
+    const hoop = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 3.3, 0.22), steel); post.position.set(1.25, 1.65, 0);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.14, 0.14), steel); arm.position.set(0.68, 3.2, 0);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.07, 1.83), new THREE.MeshLambertMaterial({ color: grey(0.95) })); board.position.set(0, 3.35, 0);
+    const square = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.45, 0.6), new THREE.MeshLambertMaterial({ color: grey(0.2) })); square.position.set(-0.01, 3.2, 0);
+    const inner = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.38, 0.52), new THREE.MeshLambertMaterial({ color: grey(0.95) })); inner.position.set(-0.012, 3.2, 0);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.02, 8, 36), new THREE.MeshLambertMaterial({ color: grey(0.15) }));
+    rim.rotation.x = Math.PI / 2; rim.position.set(-0.38, 3.05, 0);
+    const net = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.14, 0.42, 14, 3, true), new THREE.MeshLambertMaterial({ color: grey(0.75), wireframe: true }));
+    net.position.set(-0.38, 2.83, 0);
+    hoop.add(post, arm, board, square, inner, rim, net);
+    hoop.position.x = side * (COURT.L / 2 - 1.2);
+    if (side < 0) hoop.rotation.y = Math.PI;
+    hoop.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(hoop);
+  }
 
-  // light: one strong key from high left, so every form carries a hatched shadow side
   scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 0.75));
   const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-  sun.position.set(-6, 14, 8);
-  sun.target.position.set(9, 0, 0);
+  sun.position.set(-4, 16, 9);
+  sun.target.position.set(0, 0, 0);
   sun.castShadow = true;
   sun.shadow.mapSize.set(small ? 1024 : 2048, small ? 1024 : 2048);
-  Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 10, bottom: -10, near: 1, far: 40 });
+  Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 10, bottom: -10, near: 1, far: 45 });
   sun.shadow.bias = -0.0008;
   scene.add(sun, sun.target);
 
-  const mats = {
-    skin: new THREE.MeshLambertMaterial({ color: grey(0.4) }),
-    jersey: new THREE.MeshLambertMaterial({ color: grey(0.8) }),
-    shorts: new THREE.MeshLambertMaterial({ color: grey(0.62) }),
+  const base = {
+    skin: new THREE.MeshLambertMaterial({ color: grey(0.42) }),
     shoe: new THREE.MeshLambertMaterial({ color: grey(0.18) }),
     ring: new THREE.MeshBasicMaterial({ color: grey(0.05) }),
     ball: new THREE.MeshLambertMaterial({ color: grey(0.5) }),
   };
-  const maxFp = Math.max(...players.map((p) => p.fpg), 1);
-  const figures = players.map((pl, i) => {
-    const [dx, dz] = SPOTS[pl.slot] || [6, (i - 2) * 2.5];
-    const fig = makePlayer(POSES_BY_SLOT[pl.slot] || 'set', pl.jersey, mats);
-    // built to size: the figure is modelled at 6'7" and 220 lb
-    const tall = pl.height / 79, wide = Math.sqrt(pl.weight / 220);
-    fig.root.scale.set(wide, tall, wide);
-    fig.root.position.set(HOOP_X - dx, 0, dz);
-    fig.root.lookAt(HOOP_X, 0, 0);
-    scene.add(fig.root);
-    // his face: the headshot, always turned to the camera, engraved like everything else
-    if (pl.face) {
-      new THREE.TextureLoader().setCrossOrigin('anonymous').load(pl.face, (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5 }));
-        sprite.scale.set(0.5 * wide, 0.36 * wide, 1);
-        fig.head.getWorldPosition(sprite.position);
-        sprite.position.y += 0.04 * tall;
-        fig.head.visible = false;
-        scene.add(sprite);
-      });
-    }
-    // the ring at his feet: radius follows projection
-    const r = 0.45 + 0.75 * (pl.fpg / maxFp);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + 0.045, 64), mats.ring);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(HOOP_X - dx, 0.006, dz);
-    scene.add(ring);
-    if (fig.ball) {
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 14), mats.ball);
-      ball.castShadow = true;
-      fig.root.updateMatrixWorld(true);
-      const hand = new THREE.Vector3();
-      fig.hands[1].getWorldPosition(hand);
-      ball.position.copy(hand).add(new THREE.Vector3(0, fig.ball === 'shot' ? 0.13 : -0.55, 0));
-      if (fig.ball === 'dribble') ball.position.y = Math.max(0.35, ball.position.y);
-      scene.add(ball);
-    }
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.className = `col-label ${pl.gap >= 0 ? 'up' : 'down'}`;
-    el.innerHTML = '<b></b><span></span>';
-    el.querySelector('b').textContent = `${pl.name}${pl.jersey ? ` #${pl.jersey}` : ''}`;
-    el.title = SLOT_NAMES[pl.slot] || '';
-    el.querySelector('span').textContent = `${pl.slot} · ${pl.fpg.toFixed(1)} proj · ${pl.gap >= 0 ? 'under' : 'over'}priced ${Math.abs(pl.gap).toFixed(1)}`;
-    el.onclick = () => onPick?.(pl.id);
-    labels.append(el);
-    return { el, head: new THREE.Vector3(HOOP_X - dx, 2.45 * tall, dz) };
-  });
+  // home and away: light kit for the underpriced side, dark kit for the overpriced side
+  const kits = {
+    under: { ...base, jersey: new THREE.MeshLambertMaterial({ color: grey(0.86) }), shorts: new THREE.MeshLambertMaterial({ color: grey(0.7) }), ink: '#111' },
+    over: { ...base, jersey: new THREE.MeshLambertMaterial({ color: grey(0.2) }), shorts: new THREE.MeshLambertMaterial({ color: grey(0.14) }), ink: '#f4f4f4' },
+  };
 
-  // render target with depth for the engraving pass
+  const all = [teams.under || [], teams.over || []];
+  const maxFp = Math.max(...all.flat().map((p) => p.fpg), 1);
+  const figures = [];
+  for (const [side, list] of [['under', teams.under || []], ['over', teams.over || []]]) {
+    const dir = side === 'under' ? 1 : -1;
+    list.forEach((pl, i) => {
+      const [dx, dz] = SPOTS[pl.slot] || [6, (i - 2) * 2.5];
+      const x = dir * (HOOP_X - dx), z = dir * dz;
+      const fig = makePlayer(POSES_BY_SLOT[pl.slot] || 'set', pl.jersey, kits[side]);
+      const tall = (pl.height || 79) / 79, wide = Math.sqrt((pl.weight || 220) / 220);
+      fig.root.scale.set(wide, tall, wide);
+      fig.root.position.set(x, 0, z);
+      fig.root.lookAt(dir * HOOP_X, 0, 0);
+      scene.add(fig.root);
+      const r = 0.45 + 0.75 * (pl.fpg / maxFp);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + 0.05, 64), base.ring);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(x, 0.006, z);
+      scene.add(ring);
+      if (fig.ball) {
+        const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 14), base.ball);
+        ball.castShadow = true;
+        fig.root.updateMatrixWorld(true);
+        const hand = new THREE.Vector3();
+        fig.hands[1].getWorldPosition(hand);
+        ball.position.copy(hand).add(new THREE.Vector3(0, fig.ball === 'shot' ? 0.13 : -0.55, 0));
+        if (fig.ball === 'dribble') ball.position.y = Math.max(0.35, ball.position.y);
+        scene.add(ball);
+      }
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = `col-label ${side === 'under' ? 'up' : 'down'}`;
+      el.innerHTML = '<b></b><span></span>';
+      el.querySelector('b').textContent = `${pl.name}${pl.jersey ? ` #${pl.jersey}` : ''}`;
+      el.querySelector('span').textContent = `${pl.slot} · ${pl.fpg.toFixed(1)} proj · ${side === 'under' ? 'under' : 'over'}priced ${Math.abs(pl.gap).toFixed(1)}`;
+      el.title = SLOT_NAMES[pl.slot] || '';
+      labels.append(el);
+      const f = { pl, side, root: fig.root, ring, el, face: fig.root.rotation.y, head: new THREE.Vector3(x, 2.45 * tall, z) };
+      fig.root.traverse((o) => { o.userData.figure = f; });
+      el.onclick = () => select(f);
+      el.onmouseenter = () => { hovered = f; };
+      el.onmouseleave = () => { if (hovered === f) hovered = null; };
+      figures.push(f);
+    });
+  }
+
+  // engraving pass
   const rt = new THREE.WebGLRenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1) });
   const engrave = new THREE.ShaderMaterial({
     ...ENGRAVE,
@@ -343,16 +341,82 @@ export function mountStage({ canvas, labels, section, players, onPick, onPhase }
   const postScene = new THREE.Scene();
   postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), engrave));
   const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  if (!still) gsap.to(engrave.uniforms.uDraw, { value: 1.35, duration: 2.2, ease: 'power2.inOut', delay: 0.15 });
 
-  const state = { p: still ? 0.42 : 0 };
-  let trigger = null;
-  if (!still) {
-    trigger = ScrollTrigger.create({
-      trigger: section, start: 'top top', end: 'bottom bottom', scrub: 0.6,
-      onUpdate: (self) => { state.p = self.progress; onPhase?.(self.progress); },
-    });
-    gsap.to(engrave.uniforms.uDraw, { value: 1.35, duration: 2.2, ease: 'power2.inOut', delay: 0.15 });
-  } else onPhase?.(state.p);
+  // ---------- camera state ----------
+  const cam = { tx: 0, ty: 0, tz: 0, radius: 27, polar: 0.92, az: 0 };
+  let baseAz = 0;
+  let mode = 'court';
+  const apply = (name, instant) => {
+    const v = VIEWS[name];
+    const target = { tx: v.target[0], ty: v.target[1], tz: v.target[2], radius: v.radius * (camera.aspect < 1 ? 1.45 : 1), polar: v.polar, az: v.az };
+    mode = name;
+    baseAz = v.az;
+    // switching sides lets go of a player from the other team
+    if (selected && name !== 'court' && selected.side !== name) select(selected);
+    gsap.killTweensOf(cam);
+    if (instant || still) Object.assign(cam, target);
+    else gsap.to(cam, { ...target, duration: 1.4, ease: 'power3.inOut' });
+    onView?.(name);
+  };
+
+  // ---------- selection ----------
+  let selected = null, hovered = null;
+  function select(f) {
+    if (selected) {
+      gsap.to(selected.root.rotation, { y: selected.face, duration: still ? 0 : 0.6, ease: 'power2.out' });
+      gsap.killTweensOf(selected.ring.scale);
+      selected.ring.scale.set(1, 1, 1);
+    }
+    selected = f === selected ? null : f;
+    if (selected) {
+      // he turns to face you, and his ring pulses
+      const toCam = Math.atan2(camera.position.x - selected.root.position.x, camera.position.z - selected.root.position.z);
+      gsap.to(selected.root.rotation, { y: toCam, duration: still ? 0 : 0.7, ease: 'power2.out' });
+      if (!still) gsap.to(selected.ring.scale, { x: 1.18, y: 1.18, z: 1.18, duration: 0.8, yoyo: true, repeat: -1, ease: 'sine.inOut' });
+      if (mode === 'court') apply(selected.side);
+    }
+    onSelect?.(selected ? { ...selected.pl, side: selected.side } : null);
+  }
+
+  // ---------- pointer: drag to turn, hover to name, click to select ----------
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  const pick = (e) => {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(figures.map((f) => f.root), true)[0];
+    return hit?.object.userData.figure || null;
+  };
+  let drag = null;
+  const down = (e) => { drag = { x: e.clientX, y: e.clientY, az: cam.az, polar: cam.polar, moved: false, touch: e.pointerType === 'touch' }; };
+  const move = (e) => {
+    if (drag) {
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+      if (drag.moved) {
+        gsap.killTweensOf(cam);
+        cam.az = Math.max(baseAz - 1.5, Math.min(baseAz + 1.5, drag.az - dx * 0.006));
+        if (!drag.touch) cam.polar = Math.max(0.55, Math.min(1.32, drag.polar - dy * 0.004));
+      }
+    } else if (e.pointerType === 'mouse') {
+      hovered = pick(e);
+      canvas.style.cursor = hovered ? 'pointer' : 'grab';
+    }
+  };
+  const up = (e) => {
+    if (drag && !drag.moved) {
+      const f = pick(e);
+      if (f) select(f);
+      else if (selected) select(selected);
+    }
+    drag = null;
+  };
+  canvas.addEventListener('pointerdown', down);
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+  const key = (e) => { if (e.key === 'Escape' && selected) select(selected); };
+  addEventListener('keydown', key);
 
   const resize = () => {
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -360,12 +424,13 @@ export function mountStage({ canvas, labels, section, players, onPick, onPhase }
     rt.setSize(Math.round(w * dpr), Math.round(h * dpr));
     engrave.uniforms.uRes.value.set(Math.round(w * dpr), Math.round(h * dpr));
     camera.aspect = w / h;
-    camera.fov = w < 760 ? 50 : 38;
+    camera.fov = w < 760 ? 48 : 36;
     camera.updateProjectionMatrix();
   };
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);
   resize();
+  apply('court', true);
 
   const v = new THREE.Vector3();
   const t0 = performance.now();
@@ -373,31 +438,35 @@ export function mountStage({ canvas, labels, section, players, onPick, onPhase }
   const frame = (now) => {
     raf = 0;
     if (!visible || document.hidden) return;
-    const p = state.p;
-    const s = shot(p, camera.aspect);
-    const drift = still ? 0 : Math.sin((now - t0) / 4200) * 0.3 * (1 - Math.min(1, p * 2));
-    camera.position.set(s.pos[0] + drift, s.pos[1], s.pos[2]);
-    camera.lookAt(s.look[0], s.look[1], s.look[2]);
-    // names show while the camera is down among the players
-    const show = Math.min(1, Math.max(0, (p - 0.28) / 0.12)) * (1 - Math.min(1, Math.max(0, (p - 0.72) / 0.1)));
+    const drift = still || drag || selected ? 0 : Math.sin((now - t0) / 5200) * 0.06;
+    const az = cam.az + drift;
+    camera.position.set(cam.tx + cam.radius * Math.sin(cam.polar) * Math.sin(az), cam.ty + cam.radius * Math.cos(cam.polar), cam.tz + cam.radius * Math.sin(cam.polar) * Math.cos(az));
+    camera.lookAt(cam.tx, cam.ty, cam.tz);
+    // name plates: the side in view, plus whoever is hovered or selected
     const w = canvas.clientWidth, h = canvas.clientHeight;
     const placed = [];
-    [...figures].sort((a, b) => a.head.distanceTo(camera.position) - b.head.distanceTo(camera.position)).forEach((f) => {
+    const box = canvas.getBoundingClientRect();
+    const blocked = (avoid?.() || []).map((r) => [r.left - box.left - 10, r.top - box.top - 10, r.right - box.left + 10, r.bottom - box.top + 10]);
+    const order = [...figures].sort((a, b) => (b === selected) - (a === selected) || (b === hovered) - (a === hovered) || a.head.distanceTo(camera.position) - b.head.distanceTo(camera.position));
+    for (const f of order) {
       v.copy(f.head).project(camera);
-      const sx = Math.min(w - 80, Math.max(80, ((v.x + 1) / 2) * w)), sy = ((1 - v.y) / 2) * h;
-      const underCopy = w >= 760 && sx < 420 && sy < 470;
-      const clear = !underCopy && !placed.some(([x, y]) => Math.abs(x - sx) < 150 && Math.abs(y - sy) < 46);
-      const on = show > 0.05 && v.z < 1 && clear && v.x > -1.05 && v.x < 1.05;
+      const sx = ((v.x + 1) / 2) * w, sy = ((1 - v.y) / 2) * h;
+      const wanted = f === selected || f === hovered || (mode !== 'court' && f.side === mode && w >= 760);
+      const covered = blocked.some(([l, t, r, b]) => sx + 95 > l && sx - 95 < r && sy > t && sy - 50 < b);
+      const clear = !covered && (f === selected || !placed.some(([x, y]) => Math.abs(x - sx) < 150 && Math.abs(y - sy) < 46));
+      const on = wanted && clear && v.z < 1 && v.x > -1.05 && v.x < 1.05;
       if (on) placed.push([sx, sy]);
-      f.el.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%)`;
-      f.el.style.opacity = on ? show : 0;
+      f.el.style.transform = `translate(${Math.min(w - 80, Math.max(80, sx))}px, ${sy}px) translate(-50%, -100%)`;
+      f.el.style.opacity = on ? 1 : 0;
+      f.el.style.pointerEvents = on ? 'auto' : 'none';
+      f.el.classList.toggle('on', f === selected);
       f.el.tabIndex = on ? 0 : -1;
-    });
+    }
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
     renderer.render(postScene, postCam);
-    if (!still) raf = requestAnimationFrame(frame);
+    raf = requestAnimationFrame(frame);
   };
   const io = new IntersectionObserver(([e]) => {
     visible = e.isIntersecting;
@@ -405,16 +474,24 @@ export function mountStage({ canvas, labels, section, players, onPick, onPhase }
   });
   io.observe(section);
   raf = requestAnimationFrame(frame);
-  if (still) document.fonts?.ready.then(() => requestAnimationFrame(frame));
 
-  return () => {
-    cancelAnimationFrame(raf);
-    trigger?.kill();
-    gsap.killTweensOf(engrave.uniforms.uDraw);
-    io.disconnect(); ro.disconnect();
-    labels.textContent = '';
-    rt.dispose();
-    renderer.dispose();
-    scene.traverse((o) => { o.geometry?.dispose(); if (o.material) { o.material.map?.dispose(); o.material.dispose(); } });
+  return {
+    view: (name) => { if (VIEWS[name]) apply(name); },
+    select: (id) => { const f = figures.find((x) => x.pl.id === id); if (f !== selected) select(f || selected); },
+    destroy() {
+      cancelAnimationFrame(raf);
+      gsap.killTweensOf(cam);
+      gsap.killTweensOf(engrave.uniforms.uDraw);
+      for (const f of figures) { gsap.killTweensOf(f.ring.scale); gsap.killTweensOf(f.root.rotation); }
+      canvas.removeEventListener('pointerdown', down);
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      removeEventListener('keydown', key);
+      io.disconnect(); ro.disconnect();
+      labels.textContent = '';
+      rt.dispose();
+      renderer.dispose();
+      scene.traverse((o) => { o.geometry?.dispose(); if (o.material) { o.material.map?.dispose(); o.material.dispose(); } });
+    },
   };
 }

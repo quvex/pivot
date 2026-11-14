@@ -877,3 +877,45 @@ body[data-page="rankings"] main { max-width: 1180px; }
   .b-bar input[type=search] { width: 100%; }
 }
 @media (max-width: 760px) { .b-bar { position: static; } }
+
+/* ---------- the interactive court ---------- */
+.stage.court { height: calc(100dvh - 0px); min-height: 620px; }
+.stage.court .stage-pin { position: relative; height: 100%; }
+.stage.court canvas { cursor: grab; touch-action: pan-y; }
+.stage.court canvas:active { cursor: grabbing; }
+.court-ui { position: absolute; top: 84px; left: clamp(16px, 4vw, 56px); display: grid; gap: 14px; justify-items: start; z-index: 2; }
+.court-ui h2 { font: 400 clamp(32px, 3.6vw, 52px)/.95 var(--display); letter-spacing: -.02em; }
+.court-ui h2 i { font-style: italic; }
+.court-seg { display: inline-flex; border: 1px solid var(--text); border-radius: 999px; overflow: hidden; background: var(--panel); box-shadow: 2px 2px 0 var(--text); }
+.court-seg button { font: 500 13px var(--sans); color: var(--text); background: none; border: 0; padding: 8px 16px; cursor: pointer; transition: background .2s, color .2s; }
+.court-seg button + button { border-left: 1px solid var(--line); }
+.court-seg button.on { background: var(--accent); color: var(--on-accent); }
+.court-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.court-hint { font-size: 12.5px; color: var(--muted); font-style: italic; }
+.court-brand { position: absolute; left: clamp(16px, 4vw, 56px); bottom: clamp(18px, 5vh, 52px); pointer-events: none; }
+.court-brand p { font-size: clamp(15px, 1.4vw, 19px); margin-top: 8px; }
+body.demo[data-page="home"] .court-brand { bottom: calc(clamp(18px, 5vh, 52px) + 44px); }
+.stage.court .jumbotron { top: auto; bottom: clamp(24px, 6vh, 64px); z-index: 3; }
+body.demo[data-page="home"] .stage.court .jumbotron { bottom: calc(clamp(24px, 6vh, 64px) + 44px); }
+.pp-name { font: 400 34px/1 var(--display); margin: 8px 0 4px; letter-spacing: -.02em; }
+.pp-name span { font-style: italic; color: var(--muted); font-size: 24px; }
+.pp-why { font-size: 13.5px; line-height: 1.5; margin: 4px 0 2px; }
+#panel-player .board { margin-top: 12px; }
+#panel-player .board b { font-size: 30px; }
+.col-label.on { background: var(--accent); color: var(--on-accent); }
+.col-label.on span { color: var(--on-accent); }
+.col-label { transition: opacity .25s; }
+@media (max-width: 760px) {
+  .stage.court { height: 92dvh; min-height: 560px; }
+  .court-ui { top: 70px; left: 12px; right: 12px; }
+  .court-ui h2 { font-size: 30px; }
+  .court-seg button { padding: 7px 11px; font-size: 12px; }
+  .court-brand { display: none; }
+  .stage.court .jumbotron { left: 12px; right: 12px; width: auto; bottom: 14px; max-height: 46%; overflow: auto; }
+  .stage.court #panel-day .moves, .stage.court #panel-day .more { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .stage.court { height: 100dvh; } }
+
+.court-ui h1 { font: 400 clamp(32px, 3.6vw, 52px)/.95 var(--display); letter-spacing: -.02em; margin: 0; }
+.court-ui h1 i { font-style: italic; }
+@media (max-width: 760px) { .court-ui h1 { font-size: 30px; } .stage.court .jumbotron { max-height: 40%; } }
