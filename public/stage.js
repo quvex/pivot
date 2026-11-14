@@ -81,10 +81,12 @@ function numberDecal(num, ink = '#111') {
   const c = document.createElement('canvas');
   c.width = 128; c.height = 128;
   const g = c.getContext('2d');
-  g.fillStyle = ink;
-  g.font = '400 96px "Bodoni Moda", "Didot", serif';
+  // heavy block numerals, like a real jersey: thin type disappears once it is engraved
+  g.fillStyle = ink; g.strokeStyle = ink; g.lineWidth = 7; g.lineJoin = 'round';
+  g.font = `800 ${num.length > 1 ? 84 : 100}px "Hanken Grotesk", "Arial Black", Arial, sans-serif`;
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(num, 64, 70);
+  g.strokeText(num, 64, 68);
+  g.fillText(num, 64, 68);
   return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, alphaTest: 0.4, depthWrite: false });
 }
 
@@ -208,15 +210,22 @@ const ENGRAVE = {
 // scaled to his height, kept breathing with its idle animation and bent into a basketball stance
 // by adding a rotation to a handful of joints every frame.
 const BODY_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/models/gltf/Xbot.glb';
+// jersey numbers are real geometry in a bold face, raised slightly off the chest
+const NUMBER_FONT = 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/fonts/helvetiker_bold.typeface.json';
 let bodyPromise = null;
 function loadBody() {
   bodyPromise ||= Promise.all([
     import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/GLTFLoader.js/+esm'),
     import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/utils/SkeletonUtils.js/+esm'),
-  ]).then(async ([{ GLTFLoader }, { clone }]) => {
-    const gltf = await new GLTFLoader().loadAsync(BODY_URL);
+    import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/FontLoader.js/+esm'),
+    import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/geometries/TextGeometry.js/+esm'),
+  ]).then(async ([{ GLTFLoader }, { clone }, { FontLoader }, { TextGeometry }]) => {
+    const [gltf, font] = await Promise.all([
+      new GLTFLoader().loadAsync(BODY_URL),
+      new FontLoader().loadAsync(NUMBER_FONT).catch(() => null),
+    ]);
     const box = new THREE.Box3().setFromObject(gltf.scene);
-    return { gltf, clone, height: box.max.y - box.min.y };
+    return { gltf, clone, height: box.max.y - box.min.y, font, TextGeometry };
   });
   return bodyPromise;
 }
@@ -254,18 +263,44 @@ function dressFigure(f, body, kit, base) {
   f.mixer.update(0);
   for (const [bone, q] of f.turns) bone.quaternion.multiply(q);
   f.hands = [bones.LeftHand, bones.RightHand];
-  // his number, front and back, placed on the posed chest (the figure faces +z)
+  // his number, front and back. The chest surface is found from the posed (skinned) vertices in a
+  // band around chest height; the number sits just off it, then rides on the chest bone so it
+  // moves with the breathing and the lean.
   const chest = bones.Spine2;
-  if (chest && f.pl.jersey) {
+  if (chest && f.pl.jersey && body.font) {
     f.root.updateMatrixWorld(true);
-    const c = f.root.worldToLocal(chest.getWorldPosition(new THREE.Vector3()));
-    const lean = (st.rot.Spine?.[0] || 0) * 0.32 * f.metres / 2;
+    const skinned = [];
+    model.traverse((o) => { if (o.isSkinnedMesh) skinned.push(o); });
+    const centre = chest.getWorldPosition(new THREE.Vector3());
+    centre.y += 0.07 * (f.metres / 2);
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(f.root.getWorldQuaternion(new THREE.Quaternion())).normalize();
+    const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
+    const band = 0.07 * (f.metres / 2), half = 0.08 * (f.metres / 2);
+    const reach = { front: -Infinity, back: -Infinity };
+    const v = new THREE.Vector3(), rel = new THREE.Vector3();
+    for (const m of skinned) {
+      const n = m.geometry.attributes.position.count;
+      for (let i = 0; i < n; i++) {
+        m.getVertexPosition(i, v);
+        m.localToWorld(v);
+        rel.subVectors(v, centre);
+        if (Math.abs(rel.y) > band || Math.abs(rel.dot(side)) > half) continue;
+        const d = rel.dot(forward);
+        if (d > reach.front) reach.front = d;
+        if (-d > reach.back) reach.back = -d;
+      }
+    }
     for (const back of [false, true]) {
-      const d = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.24), numberDecal(f.pl.jersey, kit.ink));
-      d.position.set(c.x, c.y - 0.04, c.z + (back ? -0.12 : 0.135) + (back ? 0 : lean * 0.25));
-      d.rotation.x = back ? 0 : -(st.rot.Spine?.[0] || 0) * 0.6;
-      if (back) d.rotation.y = Math.PI;
-      f.root.add(d);
+      const dir = forward.clone().multiplyScalar(back ? -1 : 1);
+      const surface = back ? reach.back : reach.front;
+      const at = centre.clone().addScaledVector(dir, (Number.isFinite(surface) ? surface : 0.15) + 0.015);
+      const geo = new body.TextGeometry(f.pl.jersey, { font: body.font, size: 0.23 * (f.metres / 2), depth: 0.012, curveSegments: 3 });
+      geo.center();
+      const d = new THREE.Mesh(geo, kit.number);
+      f.root.parent.add(d);
+      d.position.copy(at);
+      d.lookAt(at.clone().add(dir));
+      chest.attach(d);
     }
   }
   if (st.ball) {
@@ -377,8 +412,8 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
   };
   // home and away: light kit for the underpriced side, dark kit for the overpriced side
   const kits = {
-    under: { ...base, jersey: new THREE.MeshLambertMaterial({ color: grey(0.86) }), shorts: new THREE.MeshLambertMaterial({ color: grey(0.7) }), ink: '#111' },
-    over: { ...base, jersey: new THREE.MeshLambertMaterial({ color: grey(0.2) }), shorts: new THREE.MeshLambertMaterial({ color: grey(0.14) }), ink: '#f4f4f4' },
+    under: { ...base, jersey: new THREE.MeshLambertMaterial({ color: grey(0.86) }), shorts: new THREE.MeshLambertMaterial({ color: grey(0.7) }), ink: '#111', number: new THREE.MeshBasicMaterial({ color: grey(0.04) }) },
+    over: { ...base, jersey: new THREE.MeshLambertMaterial({ color: grey(0.2) }), shorts: new THREE.MeshLambertMaterial({ color: grey(0.14) }), ink: '#f4f4f4', number: new THREE.MeshBasicMaterial({ color: grey(0.97) }) },
   };
 
   const all = [teams.under || [], teams.over || []];
