@@ -425,24 +425,58 @@ function garmentGeometry(shaped, plan) {
   return geo;
 }
 
-// Joint turns found by posing the model and looking at it: for an arm, z raises it out to the side
-// and over the head, y swings it across the front; for a leg, x bends the hip and the knee.
+// Stances: a rotation added on top of the idle breathing for a handful of the puppet's joints.
+// Axes (X Bot, found by posing it and looking): for the left arm, y swings it forward and z lifts it
+// out to the side (the right arm mirrors both), and x twists it, which here turns the elbows in so
+// the hands meet in front; a forearm's z bends the elbow (again mirrored); for a leg, x bends the
+// hip (negative, thigh forward) and the knee (positive); a foot's x keeps the sole flat.
+// A player blends from one stance to the next, so a catch or a pass reads as a movement.
 const STANCES = {
-  dribble: { drop: 0.035, rot: { Spine: [0.32, 0, 0], LeftUpLeg: [-0.5, 0, 0], LeftLeg: [0.85, 0, 0], RightUpLeg: [-0.5, 0, 0], RightLeg: [0.85, 0, 0], RightArm: [0, -0.55, 0], LeftArm: [0, 0.35, 0.45] }, ball: 'dribble' },
-  jumpshot: { drop: -0.16, rot: { RightArm: [0, -0.7, -2.3], RightForeArm: [0, 0, -1.4], LeftArm: [0, 0.5, 2.0], LeftForeArm: [0, 0, 1.2], LeftUpLeg: [-0.25, 0, 0], LeftLeg: [0.55, 0, 0], RightLeg: [0.3, 0, 0] }, ball: 'shot' },
-  set: { drop: 0.02, rot: { Spine: [0.15, 0, 0], LeftUpLeg: [-0.35, 0, 0], LeftLeg: [0.55, 0, 0], RightUpLeg: [-0.35, 0, 0], RightLeg: [0.55, 0, 0], RightArm: [0, -0.6, -0.45], LeftArm: [0, 0.6, 0.45], RightForeArm: [0, -0.6, 0], LeftForeArm: [0, 0.6, 0] } },
-  defend: { drop: 0.05, rot: { Spine: [0.3, 0, 0], LeftUpLeg: [-0.6, 0, 0], LeftLeg: [0.9, 0, 0], RightUpLeg: [-0.6, 0, 0], RightLeg: [0.9, 0, 0], RightArm: [0, 0, -1.1], LeftArm: [0, 0, 1.1] } },
-  post: { drop: 0.01, rot: { RightArm: [0, 0, -2.6], LeftArm: [0, 0, 2.6], LeftUpLeg: [-0.25, 0, 0], LeftLeg: [0.35, 0, 0], RightUpLeg: [-0.25, 0, 0], RightLeg: [0.35, 0, 0] } },
+  // off the ball: knees bent, weight forward, hands up and ready
+  ready: { Spine: [0.16, 0, 0], LeftUpLeg: [-0.42, 0, 0.06], RightUpLeg: [-0.42, 0, -0.06], LeftLeg: [0.72, 0, 0], RightLeg: [0.72, 0, 0], LeftFoot: [-0.3, 0, 0], RightFoot: [-0.3, 0, 0], LeftArm: [-0.6, 0.5, 0.05], RightArm: [-0.6, -0.5, -0.05], LeftForeArm: [0, 0, 0.85], RightForeArm: [0, 0, -0.85] },
+  // on the ball: lower, the right hand working the ball at the hip, the left arm guarding it
+  dribble: { Spine: [0.3, 0, 0], LeftUpLeg: [-0.55, 0, 0.08], RightUpLeg: [-0.5, 0, -0.08], LeftLeg: [0.9, 0, 0], RightLeg: [0.85, 0, 0], LeftFoot: [-0.35, 0, 0], RightFoot: [-0.35, 0, 0], LeftArm: [-0.9, 0.95, 0.1], RightArm: [-0.5, -0.45, -0.3], LeftForeArm: [0, 0, 0.9], RightForeArm: [0, 0, -0.45] },
+  // a pass on its way: square up, both hands out together at the chest
+  catch: { Spine: [0.1, 0, 0], LeftUpLeg: [-0.3, 0, 0.05], RightUpLeg: [-0.3, 0, -0.05], LeftLeg: [0.5, 0, 0], RightLeg: [0.5, 0, 0], LeftFoot: [-0.2, 0, 0], RightFoot: [-0.2, 0, 0], LeftArm: [-0.9, 1.1, -0.15], RightArm: [-0.9, -1.1, 0.15], LeftForeArm: [0, 0, 0.8], RightForeArm: [0, 0, -0.8] },
+  // a chest pass at its follow-through: arms punched straight out, leaning into it
+  pass: { Spine: [0.28, 0, 0], LeftUpLeg: [-0.5, 0, 0.05], RightUpLeg: [-0.2, 0, -0.05], LeftLeg: [0.6, 0, 0], RightLeg: [0.35, 0, 0], LeftFoot: [-0.1, 0, 0], RightFoot: [-0.15, 0, 0], LeftArm: [-0.4, 1.4, -0.15], RightArm: [-0.4, -1.4, 0.15], LeftForeArm: [0, 0, 0.15], RightForeArm: [0, 0, -0.15] },
 };
+const stEuler = new THREE.Euler(), stQ = new THREE.Quaternion();
+function applyStance(f, dt, snap) {
+  const rot = STANCES[f.stance] || {};
+  const k = snap || dt >= 1 ? 1 : 1 - Math.exp(-dt * 10);
+  const names = new Set(Object.values(STANCES).flatMap((s) => Object.keys(s)));
+  for (const name of names) {
+    const bone = f.pBones[name];
+    if (!bone) continue;
+    let cur = f.cur.get(name);
+    if (!cur) f.cur.set(name, (cur = new THREE.Quaternion()));
+    const r = rot[name];
+    stQ.setFromEuler(r ? stEuler.set(r[0], r[1], r[2]) : stEuler.set(0, 0, 0));
+    cur.slerp(stQ, k);
+    bone.quaternion.multiply(cur);
+  }
+}
+// keep him standing on the floor: the lower of his feet rests where it rests in the idle pose
+const plantV = new THREE.Vector3();
+function plant(f) {
+  f.puppet.position.y = 0;
+  f.puppet.updateMatrixWorld(true);
+  let low = Infinity;
+  for (const b of f.feet) low = Math.min(low, b.getWorldPosition(plantV).y);
+  if (Number.isFinite(low)) f.puppet.position.y = f.footRest - low;
+}
 
 function dressFigure(f, body, kit, base) {
-  const st = STANCES[f.pose] || STANCES.set;
   // the puppet: the Mixamo model, which holds the stance and the breathing
   const puppet = body.clone(body.gltf.scene);
   puppet.scale.setScalar(f.metres / body.height);
-  puppet.position.y = -st.drop * f.metres;
   f.root.add(puppet);
   const pBones = bonesOf(puppet);
+  f.puppet = puppet;
+  f.pBones = pBones;
+  f.cur = new Map();
+  f.feet = [pBones.LeftToeBase, pBones.RightToeBase, pBones.LeftFoot, pBones.RightFoot].filter(Boolean);
 
   // what is seen: the realistic body when it loaded, following the puppet; otherwise the puppet
   const real = body.real;
@@ -463,12 +497,16 @@ function dressFigure(f, body, kit, base) {
     matchRest(f);
   }
   // now bring the puppet to life: idle breathing plus the stance
-  f.turns = Object.entries(st.rot).filter(([b]) => pBones[b]).map(([b, [x, y, z]]) => [pBones[b], new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z))]);
   f.mixer = new THREE.AnimationMixer(puppet);
   const idle = body.gltf.animations.find((a) => a.name === 'idle');
   if (idle) { const act = f.mixer.clipAction(idle); act.time = Math.random() * idle.duration; act.play(); }
   f.mixer.update(0);
-  for (const [bone, q] of f.turns) bone.quaternion.multiply(q);
+  // where his feet rest when he simply stands; every stance keeps the lower foot there
+  puppet.updateMatrixWorld(true);
+  f.footRest = Math.min(...f.feet.map((bn) => bn.getWorldPosition(new THREE.Vector3()).y));
+  f.stance ||= 'ready';
+  applyStance(f, 1);
+  plant(f);
   if (f.pairs) retarget(f);
 
   // his frame, then the kit cut to fit it and bound to his skeleton
@@ -543,12 +581,6 @@ function dressFigure(f, body, kit, base) {
       chest.attach(d);
     }
   }
-  if (st.ball) {
-    f.ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 14), base.ball);
-    f.ball.castShadow = true;
-    f.ball.userData.kind = st.ball;
-    f.root.parent.add(f.ball);
-  }
 }
 
 function bonesOf(model) {
@@ -605,25 +637,14 @@ function retarget(f) {
   placeHips(f);
 }
 
-const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
-// every frame: breathe, re-apply the stance on top, carry the realistic body along, and move the
-// ball with the hands
-function animateFigure(f, dt, t) {
+// every frame: breathe, blend toward his stance, keep his feet on the floor, carry the realistic
+// body along
+function animateFigure(f, dt, snap) {
   if (!f.mixer) return;
   f.mixer.update(dt);
-  for (const [bone, q] of f.turns) bone.quaternion.multiply(q);
+  applyStance(f, dt, snap);
+  plant(f);
   if (f.pairs) retarget(f);
-  if (!f.ball) return;
-  f.root.updateMatrixWorld(true);
-  if (f.ball.userData.kind === 'shot') {
-    f.hands[0].getWorldPosition(tmpA); f.hands[1].getWorldPosition(tmpB);
-    f.ball.position.copy(tmpA).add(tmpB).multiplyScalar(0.5);
-    f.ball.position.y += 0.14;
-  } else {
-    f.hands[1].getWorldPosition(tmpB);
-    const bounce = Math.abs(Math.sin(t * 5.2));
-    f.ball.position.set(tmpB.x, 0.12 + bounce * Math.max(0, tmpB.y - 0.26), tmpB.z);
-  }
 }
 
 // ---------- faces: made on this computer only ----------
@@ -798,7 +819,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     skin: new THREE.MeshLambertMaterial({ color: grey(0.55) }),
     shoe: cloth(grey(0.18)),
     ring: new THREE.MeshBasicMaterial({ color: grey(0.05) }),
-    ball: new THREE.MeshLambertMaterial({ color: grey(0.5) }),
+    ball: new THREE.MeshLambertMaterial({ color: grey(0.1) }), // inked dark so it reads against the floor and the kits
   };
   // home and away: light kit for the underpriced side, dark kit for the overpriced side
   const kits = {
@@ -819,7 +840,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
       // the holder is what turns and gets picked; the body goes inside once the model has loaded
       const holder = new THREE.Group();
       holder.position.set(x, 0, z);
-      holder.lookAt(dir * HOOP_X, 0, 0);
+      holder.rotation.set(0, Math.atan2(dir * HOOP_X - x, -z), 0); // facing the hoop, as a pure turn so it can be steered
       scene.add(holder);
       const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, metres + 0.3, 8), hitMat);
       hit.position.y = (metres + 0.3) / 2;
@@ -838,7 +859,8 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
       el.title = SLOT_NAMES[pl.slot] || '';
       labels.append(el);
       const pose = POSES_BY_SLOT[pl.slot] || 'set';
-      const f = { pl, side, root: holder, ring, el, face: holder.rotation.y, pose, metres, head: new THREE.Vector3(x, metres + 0.45 + (pose === 'jumpshot' ? 0.3 : 0), z) };
+      // the point guard starts with the ball
+      const f = { pl, side, root: holder, ring, el, face: holder.rotation.y, pose, stance: pl.slot === 'PG' ? 'dribble' : 'ready', metres, head: new THREE.Vector3(x, metres + 0.45, z) };
       holder.traverse((o) => { o.userData.figure = f; });
       el.onclick = () => select(f);
       el.onmouseenter = () => { hovered = f; };
@@ -859,6 +881,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     if (!alive) return;
     for (const f of figures) { f.alive = () => alive; dressFigure(f, body, kits[f.side], base); }
     dressed = body.real || body;
+    setupBalls();
     for (const f of figures) putFace(f);
   }).catch(() => {
     if (!alive) return;
@@ -926,19 +949,99 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     onView?.(name);
   };
 
+  // ---------- the ball: one per side, starting with the point guard ----------
+  // Click a teammate and whoever has the ball turns to him and throws a chest pass; he turns to
+  // the passer, catches it, and starts dribbling. Everyone else on that side watches the ball.
+  const balls = {};
+  const ballGeo = new THREE.SphereGeometry(0.15, 20, 14); // a little over life size, to read at this distance
+  function setupBalls() {
+    for (const side of ['under', 'over']) {
+      const team = figures.filter((f) => f.side === side && f.mixer);
+      if (!team.length) continue;
+      const holder = team.find((f) => f.pl.slot === 'PG') || team[0];
+      for (const f of team) f.stance = f === holder ? 'dribble' : 'ready';
+      const mesh = new THREE.Mesh(ballGeo, base.ball);
+      mesh.castShadow = true;
+      scene.add(mesh);
+      balls[side] = { mesh, holder, flight: null };
+    }
+  }
+  function passTo(f) {
+    const b = balls[f.side];
+    if (!b || !f.mixer || b.flight || b.holder === f) return;
+    const from = b.holder;
+    from.stance = 'pass'; from.look = f;
+    f.stance = 'catch'; f.look = from;
+    if (still) { land(b, from, f); return; }
+    // a beat to turn and load up, then the ball flies, quicker over short passes
+    const dist = from.root.position.distanceTo(f.root.position);
+    b.flight = { from, to: f, wait: 0.32, t: 0, dur: 0.38 + dist * 0.035, start: null };
+  }
+  function land(b, from, to) {
+    b.holder = to; b.flight = null;
+    to.stance = 'dribble'; to.look = null;
+    from.look = null; from.recover = still ? 0 : 0.35;
+    if (still) from.stance = 'ready';
+  }
+  const hand = new THREE.Vector3(), hand2 = new THREE.Vector3();
+  const between = (f, out) => {
+    f.hands[0].getWorldPosition(out); f.hands[1].getWorldPosition(hand2);
+    return out.add(hand2).multiplyScalar(0.5);
+  };
+  function moveBalls(dt, t) {
+    for (const b of Object.values(balls)) {
+      const fl = b.flight;
+      if (fl) {
+        if (fl.wait > 0) { fl.wait -= dt; between(fl.from, b.mesh.position); b.mesh.position.y += 0.05; continue; }
+        fl.start ||= b.mesh.position.clone();
+        fl.t = Math.min(1, fl.t + dt / fl.dur);
+        between(fl.to, hand);
+        const u = fl.t;
+        b.mesh.position.lerpVectors(fl.start, hand, u);
+        b.mesh.position.y += Math.sin(Math.PI * u) * (0.25 + fl.dur * 0.35);
+        b.mesh.rotation.x += dt * 9;
+        if (u >= 1) land(b, fl.from, fl.to);
+        continue;
+      }
+      const h = b.holder;
+      if (!h?.hands?.[1]) continue;
+      // dribbling with the right hand, out in front of him
+      h.hands[1].getWorldPosition(hand);
+      const bounce = Math.abs(Math.sin(t * 5.2));
+      b.mesh.position.set(hand.x, 0.15 + bounce * Math.max(0, hand.y - 0.27), hand.z);
+    }
+  }
+  // which way each player turns: toward his pass while one is on, the ball handler toward the
+  // hoop (or toward you once you have picked him), everyone else toward the ball
+  const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const yawTo = (f, x, z) => Math.atan2(x - f.root.position.x, z - f.root.position.z);
+  function turnPlayers(dt) {
+    for (const f of figures) {
+      if (!f.mixer) continue;
+      if (f.recover > 0 && (f.recover -= dt) <= 0) f.stance = 'ready';
+      const b = balls[f.side];
+      const hoopX = (f.side === 'under' ? 1 : -1) * HOOP_X;
+      let target;
+      if (f.look) target = yawTo(f, f.look.root.position.x, f.look.root.position.z);
+      else if (f === selected) target = yawTo(f, camera.position.x, camera.position.z);
+      else if (!b || b.holder === f) target = yawTo(f, hoopX, 0);
+      else target = yawTo(f, b.holder.root.position.x, b.holder.root.position.z);
+      const k = still ? 1 : 1 - Math.exp(-dt * 7);
+      f.root.rotation.y += wrapAngle(target - f.root.rotation.y) * k;
+    }
+  }
+
   // ---------- selection ----------
   let selected = null, hovered = null;
   function select(f) {
     if (selected) {
-      gsap.to(selected.root.rotation, { y: selected.face, duration: still ? 0 : 0.6, ease: 'power2.out' });
       gsap.killTweensOf(selected.ring.scale);
       selected.ring.scale.set(1, 1, 1);
     }
     selected = f === selected ? null : f;
     if (selected) {
-      // he turns to face you, and his ring pulses
-      const toCam = Math.atan2(camera.position.x - selected.root.position.x, camera.position.z - selected.root.position.z);
-      gsap.to(selected.root.rotation, { y: toCam, duration: still ? 0 : 0.7, ease: 'power2.out' });
+      // the ball goes to him, he turns to face you once he has it, and his ring pulses
+      passTo(selected);
       if (!still) gsap.to(selected.ring.scale, { x: 1.18, y: 1.18, z: 1.18, duration: 0.8, yoyo: true, repeat: -1, ease: 'sine.inOut' });
       if (mode === 'court') apply(selected.side);
     }
@@ -1031,7 +1134,9 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
       f.el.tabIndex = on ? 0 : -1;
     }
     const dt = Math.min(0.05, (now - (frame.last || now)) / 1000); frame.last = now;
-    if (!still || !frame.posed) { for (const f of figures) animateFigure(f, still ? 0 : dt, (now - t0) / 1000); frame.posed = figures.every((x) => x.mixer); }
+    turnPlayers(dt);
+    for (const f of figures) animateFigure(f, still ? 0 : dt, still);
+    moveBalls(still ? 0 : dt, (now - t0) / 1000);
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);

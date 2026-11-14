@@ -626,15 +626,20 @@ function renderRankings(app) {
   const R = playerRatings();
   const q = r.q.trim().toLowerCase();
   const [, key] = SORTS[r.sort] || SORTS.consensus;
+  const order = (a, b) => { const x = key(a), y = key(b); return (typeof x === 'string' ? x.localeCompare(y) : x - y) || a.model.rank - b.model.rank; };
+  // every player keeps his rank in the full list; a search or filter only narrows what is shown
+  const rankOf = new Map([...S.players].sort(order).map((p, i) => [p.id, i + 1]));
   let rows = S.players.filter((p) => (!q || p.name.toLowerCase().includes(q) || p.team.toLowerCase() === q || (TEAM_NAMES[p.team] || '').toLowerCase().includes(q))
     && (!r.pos || p.pos === r.pos)
     && (r.show === 'all' || (r.show === 'mine' && p.own.type === 'mine') || (r.show === 'fa' && (p.own.type === 'fa' || (p.own.type === 'unknown' && p.owned < 60)))));
-  rows.sort((a, b) => { const x = key(a), y = key(b); return (typeof x === 'string' ? x.localeCompare(y) : x - y) || a.model.rank - b.model.rank; });
+  rows.sort(order);
   const total = rows.length;
   rows = rows.slice(0, r.limit);
   const scoring = Object.entries(S.meta.scoring).map(([k, v]) => `${S.statLabels[k] || k} ${signed(v, Number.isInteger(v) ? 0 : 1)}`).join(', ');
   const srcs = S.meta.sources.map((s) => s.full).join(', ');
-  const jumps = [[1, 25], [26, 50], [51, 75], [76, 100]].filter(([a]) => a <= rows.length);
+  // jump links count rows, which match ranks only when nothing is filtered out
+  const unfiltered = !q && !r.pos && r.show === 'all';
+  const jumps = unfiltered ? [[1, 25], [26, 50], [51, 75], [76, 100]].filter(([a]) => a <= rows.length) : [];
 
   app.innerHTML = `
     <div class="page-head"><div><h1>Rankings</h1>
@@ -646,7 +651,7 @@ function renderRankings(app) {
       <div class="b-group"><label for="sort">Sort by</label><select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${r.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       ${jumps.length > 1 ? `<div class="b-group"><span>Jump to</span>${jumps.map(([a, b]) => `<button type="button" class="b-chip" data-jump="${a}">${a} to ${Math.min(b, rows.length)}</button>`).join('')}</div>` : ''}
     </div>
-    <ol class="b-list">${rows.map((p, i) => rankRow(p, i + 1, R)).join('') || `<li class="empty">${r.show === 'mine' && !S.hasRoster ? 'No roster yet. Connect your league in Settings.' : 'No players match.'}</li>`}</ol>
+    <ol class="b-list">${rows.map((p) => rankRow(p, rankOf.get(p.id), R)).join('') || `<li class="empty">${r.show === 'mine' && !S.hasRoster ? 'No roster yet. Connect your league in Settings.' : 'No players match.'}</li>`}</ol>
     ${total > rows.length ? `<div class="empty"><button class="btn" id="more">Show ${Math.min(100, total - rows.length)} more of ${total}</button></div>` : ''}
     <p class="chart-note" style="margin-top:14px">${S.meta.comparedTo ? `"Today" compares with the ${esc(S.meta.comparedTo)} update.` : '"Today" fills in after tomorrow\'s update.'} Replacement level: ${fmt(S.meta.repl)} FP/G. Ratings are Pivot's, from its rest-of-season rank and each skill's percentile among the top 150.</p>`;
 
