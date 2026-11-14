@@ -3,10 +3,14 @@
 // denser in shadow and outlines found from the depth buffer.
 // Two teams take the floor: the most underpriced player at each position on the right, the most
 // overpriced on the left, each built to his real height and wearing his number, on a ring sized
-// by his projection. Drag to turn the court; click a player to pick him out. GSAP drives the
-// camera moves and the selection.
+// by his projection. Scrolling walks the camera from the whole court to the underpriced half and
+// round the far end to the overpriced half (GSAP ScrollTrigger); dragging turns the view on top of
+// that, and clicking a player picks him out.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/+esm';
 import { gsap } from 'https://cdn.jsdelivr.net/npm/gsap@3.12.5/+esm';
+import { ScrollTrigger } from 'https://cdn.jsdelivr.net/npm/gsap@3.12.5/ScrollTrigger/+esm';
+
+gsap.registerPlugin(ScrollTrigger);
 
 const COURT = { L: 28.65, W: 15.24 };
 const HOOP_X = COURT.L / 2 - 1.575;
@@ -206,6 +210,10 @@ const POSES_BY_SLOT = { PG: 'dribble', SG: 'jumpshot', SF: 'set', PF: 'defend', 
 const SLOT_NAMES = { PG: 'Point guard', SG: 'Shooting guard', SF: 'Small forward', PF: 'Power forward', C: 'Center' };
 
 // ---------- camera: three framings, plus whatever the user drags to ----------
+const ease = (t) => t * t * (3 - 2 * t);
+// where the scroll walk pauses: progress -> view
+const WALK = [[0, 'court'], [0.12, 'court'], [0.38, 'under'], [0.54, 'under'], [0.8, 'over'], [1, 'over']];
+const CENTRE = { court: 0.05, under: 0.46, over: 0.9 };
 const VIEWS = {
   court: { target: [0, 0, 1.2], radius: 34, polar: 0.84, az: 0 },
   under: { target: [HOOP_X - 4.6, 0.9, 0.3], radius: 13.5, polar: 1.12, az: -0.62 },
@@ -344,19 +352,42 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
   if (!still) gsap.to(engrave.uniforms.uDraw, { value: 1.35, duration: 2.2, ease: 'power2.inOut', delay: 0.15 });
 
   // ---------- camera state ----------
+  // `cam` is where the walk (or a button) puts the camera; `user` is the turn you add by dragging.
   const cam = { tx: 0, ty: 0, tz: 0, radius: 27, polar: 0.92, az: 0 };
-  let baseAz = 0;
+  const user = { az: 0, polar: 0 };
+  const params = (name) => { const v = VIEWS[name]; return { tx: v.target[0], ty: v.target[1], tz: v.target[2], radius: v.radius * (camera.aspect < 1 ? 1.45 : 1), polar: v.polar, az: v.az }; };
   let mode = 'court';
-  const apply = (name, instant) => {
-    const v = VIEWS[name];
-    const target = { tx: v.target[0], ty: v.target[1], tz: v.target[2], radius: v.radius * (camera.aspect < 1 ? 1.45 : 1), polar: v.polar, az: v.az };
+  const setMode = (name) => {
+    if (name === mode) return;
     mode = name;
-    baseAz = v.az;
-    // switching sides lets go of a player from the other team
+    // a new stop on the walk: drop your turn and let go of a player from the other team
+    gsap.to(user, { az: 0, polar: 0, duration: still ? 0 : 0.9, ease: 'power2.out' });
     if (selected && name !== 'court' && selected.side !== name) select(selected);
-    gsap.killTweensOf(cam);
-    if (instant || still) Object.assign(cam, target);
-    else gsap.to(cam, { ...target, duration: 1.4, ease: 'power3.inOut' });
+    onView?.(name);
+  };
+  const walk = { p: 0, target: 0 };
+  const walkCam = (p) => {
+    let i = 0;
+    while (i < WALK.length - 2 && p > WALK[i + 1][0]) i++;
+    const [p0, a] = WALK[i], [p1, b] = WALK[i + 1];
+    const t = ease(Math.min(1, Math.max(0, (p - p0) / Math.max(1e-6, p1 - p0))));
+    const A = params(a), B = params(b);
+    for (const k of Object.keys(A)) cam[k] = A[k] + (B[k] - A[k]) * t;
+    setMode(p < 0.25 ? 'court' : p < 0.67 ? 'under' : 'over');
+  };
+  let trigger = null;
+  if (!still) {
+    trigger = ScrollTrigger.create({ trigger: section, start: 'top top', end: 'bottom bottom', onUpdate: (self) => { walk.target = self.progress; } });
+  }
+  const apply = (name, instant) => {
+    if (trigger && !instant) {
+      // buttons move along the walk, so the page and the camera never disagree
+      const y = trigger.start + (trigger.end - trigger.start) * CENTRE[name];
+      scrollTo({ top: y, behavior: 'smooth' });
+      return;
+    }
+    Object.assign(cam, params(name));
+    setMode(name);
     onView?.(name);
   };
 
@@ -389,15 +420,15 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     return hit?.object.userData.figure || null;
   };
   let drag = null;
-  const down = (e) => { drag = { x: e.clientX, y: e.clientY, az: cam.az, polar: cam.polar, moved: false, touch: e.pointerType === 'touch' }; };
+  const down = (e) => { drag = { x: e.clientX, y: e.clientY, az: user.az, polar: user.polar, moved: false, touch: e.pointerType === 'touch' }; };
   const move = (e) => {
     if (drag) {
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
       if (drag.moved) {
-        gsap.killTweensOf(cam);
-        cam.az = Math.max(baseAz - 1.5, Math.min(baseAz + 1.5, drag.az - dx * 0.006));
-        if (!drag.touch) cam.polar = Math.max(0.55, Math.min(1.32, drag.polar - dy * 0.004));
+        gsap.killTweensOf(user);
+        user.az = Math.max(-1.5, Math.min(1.5, drag.az - dx * 0.006));
+        if (!drag.touch) user.polar = Math.max(-0.45, Math.min(0.4, drag.polar - dy * 0.004));
       }
     } else if (e.pointerType === 'mouse') {
       hovered = pick(e);
@@ -439,8 +470,10 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     raf = 0;
     if (!visible || document.hidden) return;
     const drift = still || drag || selected ? 0 : Math.sin((now - t0) / 5200) * 0.06;
-    const az = cam.az + drift;
-    camera.position.set(cam.tx + cam.radius * Math.sin(cam.polar) * Math.sin(az), cam.ty + cam.radius * Math.cos(cam.polar), cam.tz + cam.radius * Math.sin(cam.polar) * Math.cos(az));
+    if (trigger) { walk.p += (walk.target - walk.p) * 0.12; walkCam(walk.p); }
+    const az = cam.az + user.az + drift;
+    const polar = Math.max(0.5, Math.min(1.35, cam.polar + user.polar));
+    camera.position.set(cam.tx + cam.radius * Math.sin(polar) * Math.sin(az), cam.ty + cam.radius * Math.cos(polar), cam.tz + cam.radius * Math.sin(polar) * Math.cos(az));
     camera.lookAt(cam.tx, cam.ty, cam.tz);
     // name plates: the side in view, plus whoever is hovered or selected
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -480,7 +513,8 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     select: (id) => { const f = figures.find((x) => x.pl.id === id); if (f !== selected) select(f || selected); },
     destroy() {
       cancelAnimationFrame(raf);
-      gsap.killTweensOf(cam);
+      trigger?.kill();
+      gsap.killTweensOf(user);
       gsap.killTweensOf(engrave.uniforms.uDraw);
       for (const f of figures) { gsap.killTweensOf(f.ring.scale); gsap.killTweensOf(f.root.rotation); }
       canvas.removeEventListener('pointerdown', down);

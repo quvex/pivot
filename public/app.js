@@ -292,7 +292,7 @@ function renderHome(app) {
           <div class="court-seg" role="group" aria-label="Show">
             <button type="button" data-view="over">Overpriced</button><button type="button" data-view="court" class="on">Both sides</button><button type="button" data-view="under">Underpriced</button>
           </div>
-          <p class="court-hint">${innerWidth < 760 ? 'Swipe sideways to turn the court. Tap a player.' : 'Drag to turn the court. Click a player.'}</p>
+          <p class="court-hint">${innerWidth < 760 ? 'Scroll to walk the court. Swipe sideways to turn it, tap a player.' : 'Scroll to walk the court. Drag to turn it, click a player.'}</p>
         </div>
         <aside class="jumbotron" id="court-panel" aria-live="polite">
           <div id="panel-day">

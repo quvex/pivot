@@ -919,3 +919,9 @@ body.demo[data-page="home"] .stage.court .jumbotron { bottom: calc(clamp(24px, 6
 .court-ui h1 { font: 400 clamp(32px, 3.6vw, 52px)/.95 var(--display); letter-spacing: -.02em; margin: 0; }
 .court-ui h1 i { font-style: italic; }
 @media (max-width: 760px) { .court-ui h1 { font-size: 30px; } .stage.court .jumbotron { max-height: 40%; } }
+
+/* the court walk: a tall section with the court pinned while you scroll through it */
+.stage.court { height: 320vh; min-height: 0; }
+.stage.court .stage-pin { position: sticky; top: 0; height: 100dvh; }
+@media (max-width: 760px) { .stage.court { height: 300vh; } .stage.court .stage-pin { min-height: 560px; } }
+@media (prefers-reduced-motion: reduce) { .stage.court { height: 100dvh; } .stage.court .stage-pin { position: relative; } }
