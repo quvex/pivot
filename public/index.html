@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Pivot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23ff7a1a'/><path d='M16 1.5c-6 4.5-6 24.500 0 29M1.500 16h29' fill='none' stroke='%23100c09' stroke-width='1.2' opacity='.45'/><path d='M6.500 21.500l6-6.500 4.500 3.500 8-8.500M19.500 10H25v5.500' fill='none' stroke='%23100c09' stroke-width='2.600' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#home" aria-label="Pivot home">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+        <circle cx="16" cy="16" r="15" fill="var(--accent)"/>
+        <path d="M16 1.500c-6 4.500-6 24.500 0 29M1.500 16h29" fill="none" stroke="var(--on-accent)" stroke-width="1.200" opacity=".45"/>
+        <path d="M6.500 21.500l6-6.500 4.500 3.500 8-8.500M19.500 10H25v5.500" fill="none" stroke="var(--on-accent)" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Pivot</span>
+    </a>
+    <nav class="tabs" id="tabs" aria-label="Pages">
+      <a href="#week" data-tab="week">This week</a>
+      <a href="#rankings" data-tab="rankings">Rankings</a>
+      <a href="#trades" data-tab="trades">Trades</a>
+      <a href="#waivers" data-tab="waivers">Waivers</a>
+      <a href="#news" data-tab="news">News</a>
+      <a href="#settings" data-tab="settings">Settings</a>
+    </nav>
+    <div class="status">
+      <button id="refresh" class="btn ghost"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M13.500 8a5.500 5.500 0 1 1-1.600-3.900M13.500 2.500v3h-3" fill="none" stroke="currentColor" stroke-width="1.600" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Refresh</span></button>
+    </div>
+  </header>
+  <div id="banner"></div>
+  <main id="app">
+    <div class="sk-page" aria-busy="true" aria-label="Loading">
+      <div class="sk" style="height:46vh;border-radius:24px"></div>
+      <div class="sk" style="height:38px;margin-top:14px"></div>
+      <div class="sk-row"><div class="sk" style="height:180px"></div><div class="sk" style="height:180px"></div></div>
+    </div>
+  </main>
+  <footer class="statusbar" id="statusbar" aria-label="Data status"></footer>
+  <aside id="drawer" class="drawer" hidden></aside>
+  <div id="scrim" class="scrim" hidden></div>
+  <datalist id="player-names"></datalist>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

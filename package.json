@@ -1,0 +1,26 @@
+{
+  "name": "pivot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fantasy basketball decision tool for ESPN points leagues: tested projections, consensus rankings, trade analysis with reasoning, waivers and a weekly plan.",
+  "scripts": {
+    "start": "node server.mjs",
+    "refresh": "node lib/refresh.mjs",
+    "backtest": "node lib/backtest.mjs",
+    "test": "node --test",
+    "lint": "eslint .",
+    "check:sources": "node scripts/check-sources.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
