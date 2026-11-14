@@ -258,10 +258,7 @@ function renderHome(app) {
   const w = S.week, me = w?.teams.find((t) => t.mine), leader = w?.teams[0];
   const movers = S.players.filter((p) => p.signal).sort((a, b) => b.signal.score - a.signal.score).slice(0, 9);
   const arc = S.players.filter((p) => p.s.season?.gp >= 3 && p.model.rank <= 140)
-    .map((p) => ({ p, d: p.model.fpg - p.market.recent })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, innerWidth < 760 ? 7 : 11);
-  const tape = S.players.filter((p) => p.s.season?.gp >= 3 && p.model.rank <= 140)
-    .map((p) => ({ p, d: p.model.fpg - p.market.recent })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 28);
-  const tapeHtml = tape.map(({ p, d }) => `<span class="tick" data-player="${p.id}"><b>${esc(p.name)}</b><span class="num">${fmt(p.model.fpg)}</span><span class="num ${d >= 0 ? 'up' : 'down'}">${TRI(d >= 0)}${fmt(Math.abs(d))}</span></span>`).join('');
+    .map((p) => ({ p, d: p.model.fpg - p.market.recent })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, innerWidth < 760 ? 5 : 8);
   const moves = (w?.my?.advice || []).slice(0, 3).map((a) => a.split(/: (?=[a-z])/)[0].replace(/\.$/, ''));
   const today = new Date(DEMO ? S.meta.refreshedAt : Date.now()).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const m = myMatchup(w);
@@ -285,8 +282,8 @@ function renderHome(app) {
           <p>Your league, priced every morning.</p>
         </div>
         <div class="beat beat-b">
-          <h2>Where the market is wrong</h2>
-          <p>Each column is a player's rest-of-season projection. Green ones are playing below it, red ones above. Click one for the details.</p>
+          <h2>Where the market is <i>wrong</i></h2>
+          <p>The eight players whose price is furthest from Pivot's projection. The ring at each player's feet grows with his projection. Click a name for the details.</p>
         </div>
         <aside class="jumbotron" aria-label="Today">
           <p class="today-date">${esc(today)}${me ? ` · ${esc(me.name)}` : ''}</p>
@@ -297,7 +294,7 @@ function renderHome(app) {
         </aside>
       </div>
     </section>
-    <div class="ticker" aria-label="Projection against recent production, biggest gaps first"><div class="track">${tapeHtml}${tapeHtml.replaceAll('data-player', 'aria-hidden="true" data-player')}</div></div>
+    <section class="board-wrap"><div class="board-title"><h2>The Pivot 100</h2><p>Every player Pivot would roster, ranked by rest-of-season value. Open one for his numbers, the read on him and a rating breakdown.</p></div><div id="board"></div></section>
     <div class="home-grid">
       <section class="panel"><header><h2>Mispriced today</h2><p>Where the projection and recent box scores disagree most</p></header><div class="table-wrap"><table>
         <thead><tr><th class="l">Player</th><th class="l">Call</th><th title="Projected fantasy points per game, rest of season">Proj</th><th title="What recent box scores suggest">Recent</th><th>Gap</th></tr></thead>
@@ -318,17 +315,152 @@ function renderHome(app) {
     if (!stage.isConnected) return;
     unmountStage = mountStage({
       canvas: $('#court'), labels: $('#col-labels'), section: stage,
-      players: arc.map(({ p, d }) => ({ id: p.id, name: p.name, fpg: p.model.fpg, gap: d })),
+      players: arc.map(({ p, d }) => ({ id: p.id, name: p.name, fpg: p.model.fpg, gap: d, pos: p.pos, jersey: p.jersey || '' })),
       onPick: (id) => openPlayer(id),
       onPhase: (pr) => { stage.dataset.beat = pr < 0.2 ? 'a' : pr < 0.74 ? 'b' : 'c'; },
     });
   }).catch(() => stage.classList.add('no-webgl'));
+  renderBoard($('#board'));
   loadHomeOffer();
   app.onclick = (e) => {
     if (!e.target.closest('[data-home-edit]') || !ui.home.offer) return;
     const t = ui.home.offer;
     openBuilder({ give: t.give, get: t.get, partner: t.partner?.id ?? null });
   };
+}
+
+// ---------- the Pivot 100 ----------
+// A ranked list in the spirit of Bleacher Report's NBA 100: one row per player, opening into a
+// card with his numbers, Pivot's read on him, and a rating breakdown.
+const TEAM_NAMES = { ATL: 'Hawks', BOS: 'Celtics', BKN: 'Nets', CHA: 'Hornets', CHI: 'Bulls', CLE: 'Cavaliers', DAL: 'Mavericks', DEN: 'Nuggets', DET: 'Pistons', GSW: 'Warriors', HOU: 'Rockets', IND: 'Pacers', LAC: 'Clippers', LAL: 'Lakers', MEM: 'Grizzlies', MIA: 'Heat', MIL: 'Bucks', MIN: 'Timberwolves', NOP: 'Pelicans', NYK: 'Knicks', OKC: 'Thunder', ORL: 'Magic', PHI: '76ers', PHX: 'Suns', POR: 'Trail Blazers', SAC: 'Kings', SAS: 'Spurs', TOR: 'Raptors', UTA: 'Jazz', WAS: 'Wizards', FA: 'Free agent' };
+const ROLE = { PG: 'Guard', SG: 'Guard', SF: 'Wing', PF: 'Big', C: 'Big' };
+const ui100 = { from: 1, role: 'all', team: '', open: null };
+
+// Ratings are percentiles among the top 150, stretched onto a 40 to 99 scale.
+function boardRatings(players) {
+  const pool = [...players].filter((p) => p.team !== 'FA').sort((a, b) => a.model.rank - b.model.rank).slice(0, 150);
+  const cats = {
+    Scoring: (p) => (p.s.season?.pts ?? p.s.proj?.pts ?? 0) + (p.s.season?.tpm ?? 0) * 0.5,
+    Playmaking: (p) => (p.s.season?.ast ?? p.s.proj?.ast ?? 0) - 0.5 * (p.s.season?.to ?? 0),
+    Rebounding: (p) => p.s.season?.reb ?? p.s.proj?.reb ?? 0,
+    Defense: (p) => (p.s.season?.stl ?? 0) + (p.s.season?.blk ?? 0),
+    Availability: (p) => p.avail.games,
+  };
+  const scale = (vals) => { const sorted = [...vals].sort((a, b) => a - b); return (v) => 40 + 59 * (sorted.filter((x) => x <= v).length - 1) / Math.max(1, sorted.length - 1); };
+  const out = new Map();
+  const scales = Object.fromEntries(Object.entries(cats).map(([k, f]) => [k, scale(pool.map(f))]));
+  const avg = Object.fromEntries(Object.keys(cats).map((k) => [k, pool.slice(0, 100).reduce((a, p) => a + scales[k](cats[k](p)), 0) / Math.min(100, pool.length)]));
+  pool.forEach((p, i) => {
+    out.set(p.id, {
+      full: Math.round(99 - (i * 39) / 149),
+      cats: Object.fromEntries(Object.keys(cats).map((k) => [k, Math.round(scales[k](cats[k](p)) * 10) / 10])),
+    });
+  });
+  return { list: pool.slice(0, 100), ratings: out, avg };
+}
+
+const headshot = (p) => (DEMO ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=150&h=110&cb=1`);
+
+function boardRow(p, rank, r) {
+  const call = p.signal ? `<span class="b-call ${p.signal.type}">${p.signal.type === 'buy' ? 'Buy low' : 'Sell high'}</span>` : '';
+  const pic = headshot(p);
+  return `<li class="b-item" data-id="${p.id}" style="--i:${rank % 25}">
+    <button type="button" class="b-row" aria-expanded="${ui100.open === p.id}" aria-controls="b-d-${p.id}">
+      <span class="b-rank">${rank}.</span>
+      <span class="b-pic">${pic ? `<img src="${esc(pic)}" alt="" loading="lazy" onerror="this.remove()">` : ''}<i aria-hidden="true">${esc(p.name.split(' ').map((w) => w[0]).slice(0, 2).join(''))}</i></span>
+      <span class="b-who"><b>${esc(p.name)}</b>, ${esc(TEAM_NAMES[p.team] || p.team)}, ${ROLE[p.pos] || p.pos} ${ownChip(p.own)}</span>
+      ${call}
+      <span class="b-rating"><small>Rating</small><b>${r.full}</b></span>
+    </button>
+    <div class="b-detail" id="b-d-${p.id}" ${ui100.open === p.id ? '' : 'hidden'}>${ui100.open === p.id ? boardDetail(p, rank, r) : ''}</div>
+  </li>`;
+}
+
+function boardDetail(p, rank, r, avg = ui100.avg) {
+  const s = p.s.season || p.s.proj || {};
+  const read = p.signal ? p.signal.reasons.slice(0, 2) : p.model.reasons.slice(0, 2);
+  const question = p.avail.note ? `${p.avail.note}.`
+    : p.avail.durability <= 0.74 ? `Can he stay on the floor? Pivot expects him to play about ${Math.round(p.avail.durability * 100)}% of his remaining games.`
+    : p.model.sd > 5 ? `How stable is this? The model's typical miss for him is ±${fmt(p.model.sd)} FP/G.`
+    : `Whether he holds this pace: ${fmt(p.form?.last5)} FP/G over his last five against ${fmt(p.model.fpg)} projected.`;
+  const stat = (k, v) => `<div class="b-stat"><small>${k}</small><b>${v}</b></div>`;
+  return `<div class="b-card">
+    <div class="b-head"><span class="b-rank big">${rank}.</span><h3>${esc(p.name)}</h3><span class="muted">${esc(TEAM_NAMES[p.team] || p.team)}</span></div>
+    <div class="b-stats">
+      ${stat('Position', ROLE[p.pos] || p.pos)}${stat('Projection', `${fmt(p.model.fpg)} <em>FP/G</em>`)}${stat('Minutes', fmt(p.model.min))}${stat('Games left', fmt(p.avail.games, 0))}
+      ${stat('PTS', fmt(s.pts))}${stat('REB', fmt(s.reb))}${stat('AST', fmt(s.ast))}${stat('STL + BLK', fmt((s.stl || 0) + (s.blk || 0)))}
+    </div>
+    <p class="b-note">${p.s.season ? `This season, ${p.s.season.gp} games` : 'Preseason projection'}${p.age ? ` · age ${p.age}` : ''}${p.consensus ? ` · consensus rank ${p.consensus.rank}` : ''}</p>
+    <div class="b-cols">
+      <div>
+        <h4>Pivot's read</h4>
+        ${read.map((x) => `<p>${esc(x)}.</p>`).join('')}
+        <h4>Biggest question</h4>
+        <p>${esc(question)}</p>
+        <div class="b-actions"><button type="button" class="btn small" data-player="${p.id}">Full profile</button><button type="button" class="btn small" data-mock="${p.id}">Mock offers</button></div>
+      </div>
+      <div class="b-ratings">
+        ${Object.entries(r.cats).map(([k, v]) => `<div class="b-r"><div class="b-r-top"><span>${k}</span><b class="num">${v.toFixed(1)}</b></div><div class="b-track"><i style="--w:${((v - 40) / 59) * 100}%"></i><u style="left:${((avg[k] - 40) / 59) * 100}%"></u></div></div>`).join('')}
+        <div class="b-r full"><div class="b-r-top"><span>Full rating</span><b class="num">${r.full}</b></div><div class="b-track"><i style="--w:${((r.full - 40) / 59) * 100}%"></i></div></div>
+        <p class="b-legend"><u></u> top-100 average</p>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderBoard(el) {
+  const { list, ratings, avg } = boardRatings(S.players);
+  ui100.avg = avg;
+  const teams = [...new Set(list.map((p) => p.team))].sort();
+  const visible = list.map((p, i) => [p, i + 1]).filter(([p]) => (ui100.role === 'all' || ROLE[p.pos] === ui100.role) && (!ui100.team || p.team === ui100.team));
+  const jumps = [[100, 76], [75, 51], [50, 26], [25, 1]];
+  el.innerHTML = `
+    <div class="b-bar">
+      <div class="b-group"><span>Jump to</span>${jumps.map(([a, b]) => `<button type="button" class="b-chip" data-jump="${b}">${a} to ${b}</button>`).join('')}</div>
+      <div class="b-group"><span>Position</span>${['all', 'Guard', 'Wing', 'Big'].map((r) => `<button type="button" class="b-chip ${ui100.role === r ? 'on' : ''}" data-role="${r}">${r === 'all' ? 'All' : `${r}s`}</button>`).join('')}</div>
+      <div class="b-group"><label for="b-team">Team</label><select id="b-team"><option value="">All teams</option>${teams.map((t) => `<option value="${t}" ${ui100.team === t ? 'selected' : ''}>${esc(TEAM_NAMES[t] || t)}</option>`).join('')}</select></div>
+    </div>
+    <ol class="b-list" reversed>${visible.map(([p, rank]) => boardRow(p, rank, ratings.get(p.id))).join('') || '<li class="empty">No players match.</li>'}</ol>`;
+
+  const reveal = () => motion.then((m) => {
+    if (!m || calm()) return;
+    m.inView(el.querySelectorAll('.b-item'), (info) => {
+      const target = info.target || info;
+      m.animate(target, { opacity: [0, 1], clipPath: ['inset(0 100% 0 0)', 'inset(0 0% 0 0)'] }, { duration: 0.7, ease: [0.22, 1, 0.36, 1], delay: (Number(target.style.getPropertyValue('--i')) % 6) * 0.04 });
+    }, { amount: 0.25 });
+  });
+  reveal();
+
+  el.onclick = (e) => {
+    const jump = e.target.closest('[data-jump]');
+    if (jump) { el.querySelector(`.b-item:nth-last-child(${jump.dataset.jump})`)?.scrollIntoView({ behavior: calm() ? 'auto' : 'smooth', block: 'center' }); return; }
+    const role = e.target.closest('[data-role]');
+    if (role) { ui100.role = role.dataset.role; return renderBoard(el); }
+    const row = e.target.closest('.b-row');
+    if (!row) return;
+    const li = row.closest('.b-item');
+    const id = +li.dataset.id;
+    const detail = li.querySelector('.b-detail');
+    const opening = ui100.open !== id;
+    // close whatever was open
+    const prev = el.querySelector('.b-row[aria-expanded="true"]');
+    if (prev && prev !== row) { prev.setAttribute('aria-expanded', 'false'); const d = prev.parentElement.querySelector('.b-detail'); d.hidden = true; d.innerHTML = ''; }
+    ui100.open = opening ? id : null;
+    row.setAttribute('aria-expanded', String(opening));
+    if (!opening) { detail.hidden = true; detail.innerHTML = ''; return; }
+    const p = byId.get(id), rank = [...el.querySelectorAll('.b-item')].indexOf(li);
+    detail.innerHTML = boardDetail(p, Number(row.querySelector('.b-rank').textContent.replace('.', '')), ratings.get(id));
+    detail.hidden = false;
+    motion.then((m) => {
+      if (!m || calm()) return;
+      const card = detail.querySelector('.b-card');
+      m.animate(card, { opacity: [0, 1], transform: ['translateY(-8px)', 'translateY(0)'] }, { type: 'spring', stiffness: 260, damping: 28 });
+      m.animate(detail.querySelectorAll('.b-track i'), { transform: ['scaleX(0)', 'scaleX(1)'] }, { delay: m.stagger(0.06, { startDelay: 0.15 }), duration: 0.8, ease: [0.22, 1, 0.36, 1] });
+      m.animate(detail.querySelectorAll('.b-stat'), { opacity: [0, 1], transform: ['translateY(6px)', 'translateY(0)'] }, { delay: m.stagger(0.025), duration: 0.35 });
+    });
+    void rank;
+  };
+  el.querySelector('#b-team').onchange = (e) => { ui100.team = e.target.value; renderBoard(el); };
 }
 
 // ---------- first run ----------
