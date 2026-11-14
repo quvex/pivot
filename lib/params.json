@@ -63,28 +63,13 @@
     "results": [
       {
         "key": "model",
-        "label": "Tuned model",
+        "label": "Pivot model",
         "mae": 3.87,
         "rmse": 4.87,
         "bias": 0.32,
         "n": 4070,
         "next14": 5.35,
-        "trainMae": 3.92,
-        "byDay": [
-          4.42,
-          4.19,
-          3.9,
-          3.72,
-          3.79,
-          3.74,
-          3.7,
-          3.72,
-          3.73,
-          3.93,
-          3.79,
-          3.82,
-          3.84
-        ]
+        "trainMae": 3.92
       },
       {
         "key": "old",
@@ -94,22 +79,7 @@
         "bias": 0.31,
         "n": 4070,
         "next14": 5.44,
-        "trainMae": 4,
-        "byDay": [
-          4.6,
-          4.33,
-          3.94,
-          3.88,
-          3.98,
-          3.89,
-          3.83,
-          3.88,
-          3.79,
-          3.96,
-          3.81,
-          3.95,
-          4.06
-        ]
+        "trainMae": 4
       },
       {
         "key": "seasonAvg",
@@ -119,47 +89,7 @@
         "bias": -0.16,
         "n": 4070,
         "next14": 5.54,
-        "trainMae": 4.55,
-        "byDay": [
-          6.03,
-          5,
-          4.62,
-          4.08,
-          4.1,
-          4.05,
-          3.99,
-          4,
-          4.04,
-          4.15,
-          4.18,
-          4.22,
-          4.38
-        ]
-      },
-      {
-        "key": "last15",
-        "label": "Last 15 days",
-        "mae": 5.59,
-        "rmse": 7.24,
-        "bias": -0.13,
-        "n": 4070,
-        "next14": 6.42,
-        "trainMae": 5.82,
-        "byDay": [
-          6.03,
-          5.65,
-          5.34,
-          5,
-          5.84,
-          5.93,
-          5.14,
-          5.53,
-          5.57,
-          5.32,
-          5.03,
-          6.12,
-          6.32
-        ]
+        "trainMae": 4.55
       },
       {
         "key": "preseason",
@@ -169,22 +99,17 @@
         "bias": 0.75,
         "n": 4070,
         "next14": 6.9,
-        "trainMae": 5.1,
-        "byDay": [
-          5.36,
-          5.37,
-          5.44,
-          5.43,
-          5.41,
-          5.4,
-          5.48,
-          5.5,
-          5.51,
-          5.59,
-          5.54,
-          5.53,
-          5.66
-        ]
+        "trainMae": 5.1
+      },
+      {
+        "key": "last15",
+        "label": "Last 15 days",
+        "mae": 5.59,
+        "rmse": 7.24,
+        "bias": -0.13,
+        "n": 4070,
+        "next14": 6.42,
+        "trainMae": 5.82
       }
     ],
     "calibration": [
@@ -244,6 +169,500 @@
         "predicted": 51.44,
         "actual": 49.08
       }
-    ]
+    ],
+    "labels": {
+      "model": "Pivot model",
+      "old": "Previous model",
+      "seasonAvg": "Season average",
+      "last15": "Last 15 days",
+      "preseason": "Preseason projection",
+      "noSplit": "Without the minutes × efficiency split",
+      "noRecency": "Without recency weighting",
+      "noPrior": "Without the preseason prior",
+      "noLuck": "Without the shooting-luck correction",
+      "noTopTrim": "Without the top-end trim"
+    },
+    "baselines": [
+      "model",
+      "old",
+      "seasonAvg",
+      "preseason",
+      "last15"
+    ],
+    "ablations": [
+      "noSplit",
+      "noRecency",
+      "noPrior",
+      "noLuck",
+      "noTopTrim"
+    ],
+    "folds": [
+      {
+        "test": "2023-24",
+        "train": [
+          "2021-22"
+        ],
+        "samples": 3775,
+        "players": 339,
+        "mae": {
+          "model": {
+            "mae": 4.06,
+            "lo": 3.76,
+            "hi": 4.37
+          },
+          "old": {
+            "mae": 4.12,
+            "lo": 3.83,
+            "hi": 4.42
+          },
+          "seasonAvg": {
+            "mae": 4.68,
+            "lo": 4.36,
+            "hi": 5.05
+          },
+          "last15": {
+            "mae": 5.85,
+            "lo": 5.63,
+            "hi": 6.1
+          },
+          "preseason": {
+            "mae": 5.24,
+            "lo": 4.74,
+            "hi": 5.72
+          },
+          "noSplit": {
+            "mae": 4.11,
+            "lo": 3.81,
+            "hi": 4.4
+          },
+          "noRecency": {
+            "mae": 4.16,
+            "lo": 3.86,
+            "hi": 4.52
+          },
+          "noPrior": {
+            "mae": 4.48,
+            "lo": 4.21,
+            "hi": 4.8
+          },
+          "noLuck": {
+            "mae": 4.05,
+            "lo": 3.77,
+            "hi": 4.34
+          },
+          "noTopTrim": {
+            "mae": 4.06,
+            "lo": 3.76,
+            "hi": 4.37
+          }
+        },
+        "diff": {
+          "old": {
+            "diff": 0.07,
+            "lo": -0.01,
+            "hi": 0.14
+          },
+          "seasonAvg": {
+            "diff": 0.62,
+            "lo": 0.39,
+            "hi": 0.87
+          },
+          "last15": {
+            "diff": 1.79,
+            "lo": 1.54,
+            "hi": 2.06
+          },
+          "preseason": {
+            "diff": 1.18,
+            "lo": 0.84,
+            "hi": 1.52
+          },
+          "noSplit": {
+            "diff": 0.05,
+            "lo": -0.03,
+            "hi": 0.14
+          },
+          "noRecency": {
+            "diff": 0.11,
+            "lo": 0.02,
+            "hi": 0.2
+          },
+          "noPrior": {
+            "diff": 0.42,
+            "lo": 0.25,
+            "hi": 0.62
+          },
+          "noLuck": {
+            "diff": -0.01,
+            "lo": -0.07,
+            "hi": 0.05
+          },
+          "noTopTrim": {
+            "diff": 0,
+            "lo": 0,
+            "hi": 0
+          }
+        },
+        "next14": {
+          "model": 5.46,
+          "old": 5.5,
+          "seasonAvg": 5.69,
+          "last15": 6.57,
+          "preseason": 6.69,
+          "noSplit": 5.57,
+          "noRecency": 5.51,
+          "noPrior": 5.51,
+          "noLuck": 5.47,
+          "noTopTrim": 5.46
+        },
+        "trainMae": 3.93
+      },
+      {
+        "test": "2024-25",
+        "train": [
+          "2021-22",
+          "2023-24"
+        ],
+        "samples": 3946,
+        "players": 354,
+        "mae": {
+          "model": {
+            "mae": 3.79,
+            "lo": 3.55,
+            "hi": 4.04
+          },
+          "old": {
+            "mae": 3.89,
+            "lo": 3.65,
+            "hi": 4.15
+          },
+          "seasonAvg": {
+            "mae": 4.34,
+            "lo": 4.05,
+            "hi": 4.64
+          },
+          "last15": {
+            "mae": 5.79,
+            "lo": 5.58,
+            "hi": 6
+          },
+          "preseason": {
+            "mae": 5.06,
+            "lo": 4.63,
+            "hi": 5.49
+          },
+          "noSplit": {
+            "mae": 3.87,
+            "lo": 3.62,
+            "hi": 4.13
+          },
+          "noRecency": {
+            "mae": 3.82,
+            "lo": 3.56,
+            "hi": 4.09
+          },
+          "noPrior": {
+            "mae": 4.1,
+            "lo": 3.86,
+            "hi": 4.34
+          },
+          "noLuck": {
+            "mae": 3.81,
+            "lo": 3.59,
+            "hi": 4.06
+          },
+          "noTopTrim": {
+            "mae": 3.79,
+            "lo": 3.55,
+            "hi": 4.04
+          }
+        },
+        "diff": {
+          "old": {
+            "diff": 0.1,
+            "lo": 0.04,
+            "hi": 0.16
+          },
+          "seasonAvg": {
+            "diff": 0.55,
+            "lo": 0.36,
+            "hi": 0.74
+          },
+          "last15": {
+            "diff": 2,
+            "lo": 1.75,
+            "hi": 2.22
+          },
+          "preseason": {
+            "diff": 1.27,
+            "lo": 0.96,
+            "hi": 1.59
+          },
+          "noSplit": {
+            "diff": 0.08,
+            "lo": 0.02,
+            "hi": 0.14
+          },
+          "noRecency": {
+            "diff": 0.03,
+            "lo": -0.05,
+            "hi": 0.12
+          },
+          "noPrior": {
+            "diff": 0.31,
+            "lo": 0.15,
+            "hi": 0.46
+          },
+          "noLuck": {
+            "diff": 0.02,
+            "lo": -0.01,
+            "hi": 0.06
+          },
+          "noTopTrim": {
+            "diff": 0,
+            "lo": 0,
+            "hi": 0
+          }
+        },
+        "next14": {
+          "model": 5.27,
+          "old": 5.38,
+          "seasonAvg": 5.65,
+          "last15": 6.55,
+          "preseason": 6.48,
+          "noSplit": 5.37,
+          "noRecency": 5.34,
+          "noPrior": 5.43,
+          "noLuck": 5.29,
+          "noTopTrim": 5.27
+        },
+        "trainMae": 3.98
+      },
+      {
+        "test": "2025-26",
+        "train": [
+          "2021-22",
+          "2023-24",
+          "2024-25"
+        ],
+        "samples": 4070,
+        "players": 370,
+        "mae": {
+          "model": {
+            "mae": 3.87,
+            "lo": 3.64,
+            "hi": 4.1
+          },
+          "old": {
+            "mae": 3.99,
+            "lo": 3.74,
+            "hi": 4.23
+          },
+          "seasonAvg": {
+            "mae": 4.37,
+            "lo": 4.09,
+            "hi": 4.65
+          },
+          "last15": {
+            "mae": 5.59,
+            "lo": 5.38,
+            "hi": 5.8
+          },
+          "preseason": {
+            "mae": 5.48,
+            "lo": 5.03,
+            "hi": 5.92
+          },
+          "noSplit": {
+            "mae": 3.95,
+            "lo": 3.71,
+            "hi": 4.19
+          },
+          "noRecency": {
+            "mae": 3.95,
+            "lo": 3.69,
+            "hi": 4.2
+          },
+          "noPrior": {
+            "mae": 4.18,
+            "lo": 3.94,
+            "hi": 4.41
+          },
+          "noLuck": {
+            "mae": 3.87,
+            "lo": 3.64,
+            "hi": 4.11
+          },
+          "noTopTrim": {
+            "mae": 3.88,
+            "lo": 3.65,
+            "hi": 4.12
+          }
+        },
+        "diff": {
+          "old": {
+            "diff": 0.12,
+            "lo": 0.07,
+            "hi": 0.18
+          },
+          "seasonAvg": {
+            "diff": 0.5,
+            "lo": 0.31,
+            "hi": 0.72
+          },
+          "last15": {
+            "diff": 1.73,
+            "lo": 1.51,
+            "hi": 1.95
+          },
+          "preseason": {
+            "diff": 1.61,
+            "lo": 1.28,
+            "hi": 1.96
+          },
+          "noSplit": {
+            "diff": 0.08,
+            "lo": 0.04,
+            "hi": 0.13
+          },
+          "noRecency": {
+            "diff": 0.08,
+            "lo": 0.01,
+            "hi": 0.15
+          },
+          "noPrior": {
+            "diff": 0.31,
+            "lo": 0.14,
+            "hi": 0.48
+          },
+          "noLuck": {
+            "diff": 0,
+            "lo": -0.03,
+            "hi": 0.02
+          },
+          "noTopTrim": {
+            "diff": 0.02,
+            "lo": 0.01,
+            "hi": 0.02
+          }
+        },
+        "next14": {
+          "model": 5.35,
+          "old": 5.44,
+          "seasonAvg": 5.54,
+          "last15": 6.42,
+          "preseason": 6.9,
+          "noSplit": 5.44,
+          "noRecency": 5.38,
+          "noPrior": 5.37,
+          "noLuck": 5.35,
+          "noTopTrim": 5.35
+        },
+        "trainMae": 3.92
+      }
+    ],
+    "pooled": {
+      "players": 1063,
+      "projections": 11791,
+      "mae": {
+        "model": {
+          "mae": 3.9,
+          "lo": 3.76,
+          "hi": 4.06
+        },
+        "old": {
+          "mae": 4,
+          "lo": 3.84,
+          "hi": 4.16
+        },
+        "seasonAvg": {
+          "mae": 4.46,
+          "lo": 4.28,
+          "hi": 4.65
+        },
+        "last15": {
+          "mae": 5.74,
+          "lo": 5.61,
+          "hi": 5.88
+        },
+        "preseason": {
+          "mae": 5.26,
+          "lo": 5.02,
+          "hi": 5.52
+        },
+        "noSplit": {
+          "mae": 3.97,
+          "lo": 3.82,
+          "hi": 4.12
+        },
+        "noRecency": {
+          "mae": 3.97,
+          "lo": 3.81,
+          "hi": 4.15
+        },
+        "noPrior": {
+          "mae": 4.25,
+          "lo": 4.09,
+          "hi": 4.41
+        },
+        "noLuck": {
+          "mae": 3.91,
+          "lo": 3.76,
+          "hi": 4.06
+        },
+        "noTopTrim": {
+          "mae": 3.91,
+          "lo": 3.77,
+          "hi": 4.07
+        }
+      },
+      "diff": {
+        "old": {
+          "diff": 0.1,
+          "lo": 0.06,
+          "hi": 0.14
+        },
+        "seasonAvg": {
+          "diff": 0.56,
+          "lo": 0.44,
+          "hi": 0.68
+        },
+        "last15": {
+          "diff": 1.84,
+          "lo": 1.7,
+          "hi": 1.98
+        },
+        "preseason": {
+          "diff": 1.36,
+          "lo": 1.2,
+          "hi": 1.56
+        },
+        "noSplit": {
+          "diff": 0.07,
+          "lo": 0.04,
+          "hi": 0.11
+        },
+        "noRecency": {
+          "diff": 0.07,
+          "lo": 0.02,
+          "hi": 0.12
+        },
+        "noPrior": {
+          "diff": 0.35,
+          "lo": 0.25,
+          "hi": 0.44
+        },
+        "noLuck": {
+          "diff": 0,
+          "lo": -0.02,
+          "hi": 0.03
+        },
+        "noTopTrim": {
+          "diff": 0.01,
+          "lo": 0,
+          "hi": 0.01
+        }
+      }
+    }
   }
 }
