@@ -2,7 +2,8 @@
 // shader redraws it as an engraving: purple ink on cream paper, with cross-hatching that gets
 // denser in shadow and outlines found from the depth buffer.
 // Two teams take the floor: the most underpriced player at each position on the right, the most
-// overpriced on the left, each built to his real height and wearing his number, on a ring sized
+// overpriced on the left, each a rigged human figure built to his real height, posed for his
+// position and wearing his number, on a ring sized
 // by his projection. Scrolling walks the camera from the whole court to the underpriced half and
 // round the far end to the overpriced half (GSAP ScrollTrigger); dragging turns the view on top of
 // that, and clicking a player picks him out.
@@ -202,6 +203,98 @@ const ENGRAVE = {
     }`,
 };
 
+// ---------- the bodies: a rigged human model, posed by bone ----------
+// One mannequin model (Mixamo's X Bot, as shipped in three.js's examples), cloned for each player,
+// scaled to his height, kept breathing with its idle animation and bent into a basketball stance
+// by adding a rotation to a handful of joints every frame.
+const BODY_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/models/gltf/Xbot.glb';
+let bodyPromise = null;
+function loadBody() {
+  bodyPromise ||= Promise.all([
+    import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/GLTFLoader.js/+esm'),
+    import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/utils/SkeletonUtils.js/+esm'),
+  ]).then(async ([{ GLTFLoader }, { clone }]) => {
+    const gltf = await new GLTFLoader().loadAsync(BODY_URL);
+    const box = new THREE.Box3().setFromObject(gltf.scene);
+    return { gltf, clone, height: box.max.y - box.min.y };
+  });
+  return bodyPromise;
+}
+
+// Joint turns found by posing the model and looking at it: for an arm, z raises it out to the side
+// and over the head, y swings it across the front; for a leg, x bends the hip and the knee.
+const STANCES = {
+  dribble: { drop: 0.035, rot: { Spine: [0.32, 0, 0], LeftUpLeg: [-0.5, 0, 0], LeftLeg: [0.85, 0, 0], RightUpLeg: [-0.5, 0, 0], RightLeg: [0.85, 0, 0], RightArm: [0, -0.55, 0], LeftArm: [0, 0.35, 0.45] }, ball: 'dribble' },
+  jumpshot: { drop: -0.16, rot: { RightArm: [0, -0.7, -2.3], RightForeArm: [0, 0, -1.4], LeftArm: [0, 0.5, 2.0], LeftForeArm: [0, 0, 1.2], LeftUpLeg: [-0.25, 0, 0], LeftLeg: [0.55, 0, 0], RightLeg: [0.3, 0, 0] }, ball: 'shot' },
+  set: { drop: 0.02, rot: { Spine: [0.15, 0, 0], LeftUpLeg: [-0.35, 0, 0], LeftLeg: [0.55, 0, 0], RightUpLeg: [-0.35, 0, 0], RightLeg: [0.55, 0, 0], RightArm: [0, -0.6, -0.45], LeftArm: [0, 0.6, 0.45], RightForeArm: [0, -0.6, 0], LeftForeArm: [0, 0.6, 0] } },
+  defend: { drop: 0.05, rot: { Spine: [0.3, 0, 0], LeftUpLeg: [-0.6, 0, 0], LeftLeg: [0.9, 0, 0], RightUpLeg: [-0.6, 0, 0], RightLeg: [0.9, 0, 0], RightArm: [0, 0, -1.1], LeftArm: [0, 0, 1.1] } },
+  post: { drop: 0.01, rot: { RightArm: [0, 0, -2.6], LeftArm: [0, 0, 2.6], LeftUpLeg: [-0.25, 0, 0], LeftLeg: [0.35, 0, 0], RightUpLeg: [-0.25, 0, 0], RightLeg: [0.35, 0, 0] } },
+};
+
+function dressFigure(f, body, kit, base) {
+  const model = body.clone(body.gltf.scene);
+  const s = f.metres / body.height;
+  model.scale.setScalar(s);
+  const st = STANCES[f.pose] || STANCES.set;
+  model.position.y = -st.drop * f.metres;
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    const joints = /joint/i.test(o.material.name);
+    o.material = joints ? kit.shorts : kit.jersey;
+    o.castShadow = true;
+    o.frustumCulled = false;
+  });
+  f.root.add(model);
+  const bones = {};
+  model.traverse((o) => { if (o.isBone) bones[o.name.replace(/^mixamorig:?/, '')] = o; });
+  f.turns = Object.entries(st.rot).filter(([b]) => bones[b]).map(([b, [x, y, z]]) => [bones[b], new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z))]);
+  f.mixer = new THREE.AnimationMixer(model);
+  const idle = body.gltf.animations.find((a) => a.name === 'idle');
+  if (idle) { const act = f.mixer.clipAction(idle); act.time = Math.random() * idle.duration; act.play(); }
+  f.mixer.update(0);
+  for (const [bone, q] of f.turns) bone.quaternion.multiply(q);
+  f.hands = [bones.LeftHand, bones.RightHand];
+  // his number, front and back, placed on the posed chest (the figure faces +z)
+  const chest = bones.Spine2;
+  if (chest && f.pl.jersey) {
+    f.root.updateMatrixWorld(true);
+    const c = f.root.worldToLocal(chest.getWorldPosition(new THREE.Vector3()));
+    const lean = (st.rot.Spine?.[0] || 0) * 0.32 * f.metres / 2;
+    for (const back of [false, true]) {
+      const d = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.24), numberDecal(f.pl.jersey, kit.ink));
+      d.position.set(c.x, c.y - 0.04, c.z + (back ? -0.12 : 0.135) + (back ? 0 : lean * 0.25));
+      d.rotation.x = back ? 0 : -(st.rot.Spine?.[0] || 0) * 0.6;
+      if (back) d.rotation.y = Math.PI;
+      f.root.add(d);
+    }
+  }
+  if (st.ball) {
+    f.ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 14), base.ball);
+    f.ball.castShadow = true;
+    f.ball.userData.kind = st.ball;
+    f.root.parent.add(f.ball);
+  }
+}
+
+const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
+// every frame: breathe, re-apply the stance on top, and move the ball with the hands
+function animateFigure(f, dt, t) {
+  if (!f.mixer) return;
+  f.mixer.update(dt);
+  for (const [bone, q] of f.turns) bone.quaternion.multiply(q);
+  if (!f.ball) return;
+  f.root.updateMatrixWorld(true);
+  if (f.ball.userData.kind === 'shot') {
+    f.hands[0].getWorldPosition(tmpA); f.hands[1].getWorldPosition(tmpB);
+    f.ball.position.copy(tmpA).add(tmpB).multiplyScalar(0.5);
+    f.ball.position.y += 0.14;
+  } else {
+    f.hands[1].getWorldPosition(tmpB);
+    const bounce = Math.abs(Math.sin(t * 5.2));
+    f.ball.position.set(tmpB.x, 0.12 + bounce * Math.max(0, tmpB.y - 0.26), tmpB.z);
+  }
+}
+
 // ---------- the two teams ----------
 // Underpriced players attack the right hoop, overpriced players the left. Spots are measured from
 // the hoop each side attacks (x toward half court, z across the floor).
@@ -291,32 +384,26 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
   const all = [teams.under || [], teams.over || []];
   const maxFp = Math.max(...all.flat().map((p) => p.fpg), 1);
   const figures = [];
+  const hitMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   for (const [side, list] of [['under', teams.under || []], ['over', teams.over || []]]) {
     const dir = side === 'under' ? 1 : -1;
     list.forEach((pl, i) => {
       const [dx, dz] = SPOTS[pl.slot] || [6, (i - 2) * 2.5];
       const x = dir * (HOOP_X - dx), z = dir * dz;
-      const fig = makePlayer(POSES_BY_SLOT[pl.slot] || 'set', pl.jersey, kits[side]);
-      const tall = (pl.height || 79) / 79, wide = Math.sqrt((pl.weight || 220) / 220);
-      fig.root.scale.set(wide, tall, wide);
-      fig.root.position.set(x, 0, z);
-      fig.root.lookAt(dir * HOOP_X, 0, 0);
-      scene.add(fig.root);
+      const metres = (pl.height || 79) * 0.0254;
+      // the holder is what turns and gets picked; the body goes inside once the model has loaded
+      const holder = new THREE.Group();
+      holder.position.set(x, 0, z);
+      holder.lookAt(dir * HOOP_X, 0, 0);
+      scene.add(holder);
+      const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, metres + 0.3, 8), hitMat);
+      hit.position.y = (metres + 0.3) / 2;
+      holder.add(hit);
       const r = 0.45 + 0.75 * (pl.fpg / maxFp);
       const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + 0.05, 64), base.ring);
       ring.rotation.x = -Math.PI / 2;
       ring.position.set(x, 0.006, z);
       scene.add(ring);
-      if (fig.ball) {
-        const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 14), base.ball);
-        ball.castShadow = true;
-        fig.root.updateMatrixWorld(true);
-        const hand = new THREE.Vector3();
-        fig.hands[1].getWorldPosition(hand);
-        ball.position.copy(hand).add(new THREE.Vector3(0, fig.ball === 'shot' ? 0.13 : -0.55, 0));
-        if (fig.ball === 'dribble') ball.position.y = Math.max(0.35, ball.position.y);
-        scene.add(ball);
-      }
       const el = document.createElement('button');
       el.type = 'button';
       el.className = `col-label ${side === 'under' ? 'up' : 'down'}`;
@@ -325,14 +412,29 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
       el.querySelector('span').textContent = `${pl.slot} · ${pl.fpg.toFixed(1)} proj · ${side === 'under' ? 'under' : 'over'}priced ${Math.abs(pl.gap).toFixed(1)}`;
       el.title = SLOT_NAMES[pl.slot] || '';
       labels.append(el);
-      const f = { pl, side, root: fig.root, ring, el, face: fig.root.rotation.y, head: new THREE.Vector3(x, 2.45 * tall, z) };
-      fig.root.traverse((o) => { o.userData.figure = f; });
+      const pose = POSES_BY_SLOT[pl.slot] || 'set';
+      const f = { pl, side, root: holder, ring, el, face: holder.rotation.y, pose, metres, head: new THREE.Vector3(x, metres + 0.45 + (pose === 'jumpshot' ? 0.3 : 0), z) };
+      holder.traverse((o) => { o.userData.figure = f; });
       el.onclick = () => select(f);
       el.onmouseenter = () => { hovered = f; };
       el.onmouseleave = () => { if (hovered === f) hovered = null; };
       figures.push(f);
     });
   }
+
+  // bodies: a rigged human model per player, posed by bone; capsule figures if it cannot load
+  let alive = true;
+  loadBody().then((body) => {
+    if (!alive) return;
+    for (const f of figures) dressFigure(f, body, kits[f.side], base);
+  }).catch(() => {
+    if (!alive) return;
+    for (const f of figures) {
+      const fig = makePlayer(f.pose, f.pl.jersey, kits[f.side]);
+      fig.root.scale.setScalar(f.metres / 2);
+      f.root.add(fig.root);
+    }
+  });
 
   // engraving pass
   const rt = new THREE.WebGLRenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1) });
@@ -495,6 +597,8 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
       f.el.classList.toggle('on', f === selected);
       f.el.tabIndex = on ? 0 : -1;
     }
+    const dt = Math.min(0.05, (now - (frame.last || now)) / 1000); frame.last = now;
+    if (!still || !frame.posed) { for (const f of figures) animateFigure(f, still ? 0 : dt, (now - t0) / 1000); frame.posed = figures.every((x) => x.mixer); }
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
@@ -513,6 +617,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, a
     select: (id) => { const f = figures.find((x) => x.pl.id === id); if (f !== selected) select(f || selected); },
     destroy() {
       cancelAnimationFrame(raf);
+      alive = false;
       trigger?.kill();
       gsap.killTweensOf(user);
       gsap.killTweensOf(engrave.uniforms.uDraw);
