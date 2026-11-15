@@ -38,22 +38,22 @@ projections across a season aren't independent of each other.
 
 | Test season | Tuned on | Pivot | Season average | Previous model | Gain over season average |
 |---|---|---|---|---|---|
-| 2023-24 | 2021-22 | 4.06 (3.76 to 4.37) | 4.68 | 4.12 | 13% |
-| 2024-25 | 2021-22, 2023-24 | 3.79 (3.55 to 4.04) | 4.34 | 3.89 | 13% |
-| 2025-26 | 2021-22, 2023-24, 2024-25 | 3.87 (3.64 to 4.10) | 4.37 | 3.99 | 11% |
+| 2023-24 | 2021-22 | 4.04 (3.74 to 4.36) | 4.68 | 4.12 | 14% |
+| 2024-25 | 2021-22, 2023-24 | 3.77 (3.53 to 4.02) | 4.34 | 3.89 | 13% |
+| 2025-26 | 2021-22, 2023-24, 2024-25 | 3.87 (3.64 to 4.11) | 4.37 | 3.99 | 11% |
 
 Pooled over all three seasons (11,791 projections of 1,063 player-seasons):
 
 | Method | MAE | 95% range | Worse than Pivot by |
 |---|---|---|---|
-| Pivot | 3.90 | 3.76 to 4.06 | |
-| Previous version of the model | 4.00 | 3.84 to 4.16 | 0.10 (0.06 to 0.14) |
-| Season average to date | 4.46 | 4.28 to 4.65 | 0.56 (0.44 to 0.68) |
-| Preseason projection | 5.26 | 5.02 to 5.52 | 1.36 (1.20 to 1.56) |
-| Last 15 days | 5.74 | 5.61 to 5.88 | 1.84 (1.70 to 1.98) |
+| Pivot | 3.89 | 3.75 to 4.05 | |
+| Previous version of the model | 4.00 | 3.84 to 4.16 | 0.11 (0.07 to 0.15) |
+| Season average to date | 4.46 | 4.28 to 4.65 | 0.57 (0.45 to 0.69) |
+| Preseason projection | 5.26 | 5.02 to 5.52 | 1.37 (1.21 to 1.57) |
+| Last 15 days | 5.74 | 5.61 to 5.88 | 1.85 (1.71 to 1.99) |
 
 The season average is the number most fantasy players go by, and Pivot beats it by a similar margin
-in all three seasons. The improvement over my earlier version of the model is real but small: 0.10
+in all three seasons. The improvement over my earlier version of the model is real but small: 0.11
 FP/G, with an interval that stays above zero.
 
 I left 2022-23 out of both tuning and testing. ESPN's stored "preseason" projections for that season
@@ -66,15 +66,67 @@ positive change means the model does worse without that piece.
 
 | Piece removed | MAE | Change (95% range) | Verdict |
 |---|---|---|---|
-| Preseason prior | 4.25 | +0.35 (0.25 to 0.44) | Matters most |
-| Minutes × efficiency split (replaced by one re-tuned fantasy-points series) | 3.97 | +0.07 (0.04 to 0.11) | Helps |
-| Recency weighting | 3.97 | +0.07 (0.02 to 0.12) | Helps |
-| Top-end trim for stars | 3.91 | +0.01 (0.00 to 0.01) | Barely matters |
-| Shooting-luck correction | 3.91 | +0.00 (-0.02 to 0.03) | No measurable effect |
+| Preseason prior | 4.26 | +0.37 (0.27 to 0.47) | Matters most |
+| Minutes × efficiency split (replaced by one re-tuned fantasy-points series) | 3.97 | +0.08 (0.05 to 0.12) | Helps |
+| Recency weighting | 3.96 | +0.07 (0.02 to 0.12) | Helps |
+| Return dip after an absence | 3.90 | +0.01 (0.00 to 0.03) | Barely matters overall, a lot for the few it touches |
+| Top-end trim for stars | 3.90 | +0.01 (0.00 to 0.01) | Barely matters |
+| Shooting-luck correction | 3.89 | +0.00 (-0.02 to 0.03) | No measurable effect |
 
 I kept the shooting-luck correction because it costs nothing, but on this evidence it doesn't earn
 its place. The live app also blends in FantasyPros' rest-of-season projection. There's no history of
 that feed to replay, so it isn't in these numbers.
+
+### What news adds
+
+I tested news the same way as everything else: replay it day by day and see whether knowing it
+would have helped. ESPN's player news only goes back about three weeks, so the history comes from
+the NBA's official injury reports, which stay online. `scripts/fetch-reports.mjs` downloads the
+evening report for every day of the four seasons (692 reports, about 69,000 lines) and
+`lib/reports.mjs` reads both PDF layouts the league has used.
+
+Each line carries a written reason, and there are 2,282 distinct wordings ("Left Knee; Meniscus
+Tear", "Right Heel; Enthesopathy", "Return to Competition Reconditioning"). A language model reads
+each wording once and grades it from 0 to 5 for how long that kind of absence usually lasts
+(`lib/reasons.mjs`, grades saved in `lib/reasons.json`). The model only sorts wordings into groups.
+What each group is worth in games is measured from the training seasons, never taken from the
+model. For a player newly listed out, the share of his team's next two weeks of games he went on to
+play was 61% at grade 1, 52% at grade 2, 33% at grade 3 and 26% at grade 4.
+
+Results on the three test seasons, against the same model using box scores alone (negative is
+better, 95% ranges in brackets):
+
+| Forecast | Box scores | With the report | Change |
+|---|---|---|---|
+| FP/G, rest of season (players listed or out) | 4.04 | 4.01 | -0.02 (-0.10 to 0.04) |
+| FP/G, next 14 days (players listed or out) | 5.78 | 5.76 | -0.02 (-0.07 to 0.03) |
+| Share of games played, next 14 days (everyone) | 0.200 | 0.195 | -0.006 (-0.007 to -0.005) |
+| Total fantasy points, next 14 days (everyone) | 46.0 | 45.1 | -0.9 (-1.1 to -0.7) |
+| Total fantasy points, rest of season (everyone) | 285.4 | 282.7 | -2.7 (-4.1 to -1.4) |
+| Games played, next 14 days (players listed out) | 0.304 | 0.279 | -0.025 (-0.031 to -0.019) |
+| Total fantasy points, next 14 days (players listed out) | 55.4 | 50.5 | -4.9 (-6.0 to -3.6) |
+| Total fantasy points, rest of season (players listed out) | 336.5 | 324.1 | -12.4 (-21.5 to -4.1) |
+
+What I take from this:
+
+- **News does not improve points per game.** Once a player's own box scores are in, the report adds
+  nothing measurable to how well he plays when he plays.
+- **News improves how many games he plays.** For a player listed out, the two-week points forecast
+  gets about 9% better. That is the number a weekly lineup or a waiver claim depends on.
+- **The language model beats keyword rules only at long range.** Over two weeks, keyword matching
+  ("sprain", "surgery") does as well (-4.5 against -4.9). Over the rest of the season the model's
+  finer grades hold up (-12.4) and the keyword version's range crosses zero (-4.7, -12.2 to 2.7).
+- **Teammate injuries are worth little for rest-of-season FP/G.** I gave the model perfect
+  foresight of every teammate's future absences as a ceiling test, and the error only fell from 3.90
+  to 3.85. Guessing those absences from box scores did not help at all (3.91), so that feature is
+  not in the model.
+- **Players coming off a layoff run below their level, and box scores alone show it.** After 3 to
+  7 missed games the old model was 2.1 FP/G too high over the next two weeks, and after 21 or more
+  it was 4.8 too high for the rest of the season. That correction is now in the model as the
+  "return dip".
+
+Not tested: dated news headlines with stated timetables ("out four to six weeks"). ESPN keeps an
+archive that could be replayed the same way.
 
 ### Live track record
 
@@ -98,8 +150,10 @@ rest-of-season projection. The half-lives, prior strengths and corrections are f
 descent in `lib/backtest.mjs` and saved in `lib/params.json`.
 
 `lib/model.mjs` then hands production from injured players to their teammates. It estimates how many
-games each player has left from the injury report and a durability model, which is also fitted on
-past seasons. Everything is converted to value above replacement. In a league with a games cap,
+games each player has left from a durability model fitted on past seasons. For a player who is out,
+it averages ESPN's published return date with what history says about players listed out for a
+reason graded like his (`lib/absence.mjs`), using today's official NBA report when it is available.
+Everything is converted to value above replacement. In a league with a games cap,
 replacement level comes from the games left to play across the league rather than from roster spots.
 
 ## Trade engine
@@ -224,6 +278,9 @@ lib/sources.mjs         fetchers and parsers for every source
 lib/history.mjs         season-long game logs from ESPN
 lib/estimator.mjs       the per-game estimate shared by the live model and the backtest
 lib/backtest.mjs        tuning, rolling-origin evaluation, bootstrap intervals, ablation
+lib/reports.mjs         the NBA's official injury reports, past and present (PDF readers)
+lib/reasons.mjs         grades the written reason on a report line; reasons.json holds the grades
+lib/absence.mjs         what an absence is worth: games played and the return dip, from past seasons
 lib/livescore.mjs       scores saved daily projections against what happened since
 lib/model.mjs           projections, consensus, market value, signals, waivers, weekly plan, matchup odds
 lib/trade.mjs           trade evaluation and mock offers (also runs in the browser)
@@ -233,6 +290,6 @@ lib/news.mjs            news classification, league outcomes, LLM briefing
 lib/refresh.mjs         the daily job
 public/                 the app
 test/                   unit tests
-scripts/                live source check, demo snapshot and build
+scripts/                live source check, demo snapshot and build, report download, reason grading
 demo/state.json         the scrubbed snapshot the public demo runs on
 ```
