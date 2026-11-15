@@ -27,6 +27,7 @@ data.headlines = [];
 for (const p of data.players) {
   if (p.injury) p.injury = { status: p.injury.status, type: p.injury.type, returnDate: p.injury.returnDate };
   delete p.report; // the league report's wording stays local, like the other feeds' text
+  delete p.timetable;
   delete p.ext;
   p.ranks = p.ranks?.espn ? { espn: p.ranks.espn } : {};
   p.model.reasons = p.model.reasons.map((r) => r.replace(/^Blended 80\/20 with FantasyPros' rest-of-season projection \([^)]*\)/, 'Blended 80/20 with an outside rest-of-season projection'));

@@ -80,3 +80,39 @@ test('gradeReasons only asks about wordings it has not seen and rejects malforme
     assert.equal(lex['tail; zzz bad sev'], undefined);
   } finally { fs.writeFileSync(file, before); }
 });
+
+test('a stated timetable is one more level, and reading headlines keeps only checked facts', async () => {
+  const { timetableIndex, extractTimetables } = await import('../lib/headlines.mjs');
+  const rows = [];
+  for (let i = 0; i < 60; i++) rows.push({ k: 5, status: 'Out', sev: 3, tl: 'months', y: 0 }, { k: 5, status: 'Out', sev: 3, tl: 'soon', y: 0.8 });
+  const t = fitTable(rows);
+  assert.ok(lookup(t, { k: 5, status: 'Out', sev: 3, tl: 'months' }) < 0.1);
+  assert.ok(lookup(t, { k: 5, status: 'Out', sev: 3, tl: 'soon' }) > 0.65);
+  assert.ok(Math.abs(lookup(t, { k: 5, status: 'Out', sev: 3 }) - 0.4) < 0.01);
+
+  const said = timetableIndex([
+    { athlete: 1, date: '2024-01-01', event: 'out', weeks: 5 },
+    { athlete: 2, date: '2024-01-01', event: 'out', weeks: 40 },
+    { athlete: 3, date: '2024-01-01', event: 'out', weeks: 5 }, { athlete: 3, date: '2024-01-20', event: 'return', weeks: null },
+    { athlete: 4, date: '2024-01-01', event: 'out', weeks: null },
+  ]);
+  assert.equal(said(1, '2024-01-03'), 'weeks');
+  assert.equal(said(1, '2024-01-30'), 'soon');   // five weeks stated, four gone
+  assert.equal(said(1, '2023-12-31'), null);     // not known yet
+  assert.equal(said(2, '2024-03-30'), 'months'); // the season
+  assert.equal(said(3, '2024-01-25'), 'back');
+  assert.equal(said(3, '2024-02-15'), null);
+  assert.equal(said(4, '2024-01-03'), null);     // out, but no length given
+
+  const ask = async () => ({ facts: [{ i: 0, athlete: 7, event: 'out', weeks: 5 }, { i: 0, athlete: 99, event: 'out', weeks: 2 }, { i: 1, athlete: 8, event: 'none', weeks: null }, { i: 1, athlete: 8, event: 'out', weeks: 400 }] });
+  const items = [{ id: 'zz-test-1', time: '2024-01-01T10:00:00Z', headline: 'h', text: 't', athletes: [7] }, { id: 'zz-test-2', time: '2024-01-02T10:00:00Z', headline: 'h', text: 't', athletes: [8] }];
+  const events = (await extractTimetables(items, new Map(), ask, { save: false })).filter((e) => [7, 8, 99].includes(e.athlete));
+  assert.deepEqual(events, [{ athlete: 7, date: '2024-01-01', event: 'out', weeks: 5 }, { athlete: 8, date: '2024-01-02', event: 'out', weeks: 40 }]);
+});
+
+test('a season-ending headline does not follow a player into the next season', async () => {
+  const { timetableIndex } = await import('../lib/headlines.mjs');
+  const said = timetableIndex([{ athlete: 2, date: '2024-01-01', event: 'out', weeks: 40 }]);
+  assert.equal(said(2, '2024-04-10'), 'months');
+  assert.equal(said(2, '2024-11-01'), null);
+});

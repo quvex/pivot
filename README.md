@@ -125,8 +125,32 @@ What I take from this:
   it was 4.8 too high for the rest of the season. That correction is now in the model as the
   "return dip".
 
-Not tested: dated news headlines with stated timetables ("out four to six weeks"). ESPN keeps an
-archive that could be replayed the same way.
+#### Timetables from headlines
+
+A report says a player is out and why. A headline sometimes says for how long ("out four to six
+weeks", "to miss the rest of the season"). `scripts/fetch-headlines.mjs` downloads ESPN's dated
+NBA headlines for the same four seasons (about 4,600 that tag one to four players), and a language
+model reads each one and pulls out what it states: 1,309 absences, 1,083 of them with a length, and
+423 returns (`lib/headlines.mjs`). Only those facts are kept; the wording stays ESPN's. A stated
+timetable then counts down from the day of the article and expires, so old news stops applying.
+
+Added on top of the report with graded reasons, on the same three test seasons:
+
+| Forecast | Report only | Plus headline timetables | Change |
+|---|---|---|---|
+| FP/G, rest of season (players listed or out) | 4.01 | 4.03 | +0.01 (0.00 to 0.03) |
+| Total fantasy points, next 14 days (everyone) | 45.1 | 44.8 | -0.3 (-0.4 to -0.2) |
+| Total fantasy points, next 14 days (players listed out) | 50.5 | 48.6 | -1.9 (-2.4 to -1.4) |
+| Total fantasy points, rest of season (players listed out) | 324.1 | 319.2 | -4.9 (-9.3 to -0.7) |
+
+The pattern is the same as the report's. Headlines sharpen how many games an injured player will
+play, and do nothing for points per game (if anything they make it slightly worse, so they are not
+used there). Stacked together, box scores to report to headlines takes the two-week points error
+for a player listed out from 55.4 to 48.6, about 12% better.
+
+One bug worth recording: my first version let a "season-ending" headline follow a player into the
+next season. The backtest still showed a gain, which is a reminder that a number going down is not
+proof the feature is right. A live run caught it when a healthy player showed up as out for months.
 
 ### Live track record
 
@@ -152,7 +176,8 @@ descent in `lib/backtest.mjs` and saved in `lib/params.json`.
 `lib/model.mjs` then hands production from injured players to their teammates. It estimates how many
 games each player has left from a durability model fitted on past seasons. For a player who is out,
 it averages ESPN's published return date with what history says about players listed out for a
-reason graded like his (`lib/absence.mjs`), using today's official NBA report when it is available.
+reason graded like his (`lib/absence.mjs`), using today's official NBA report when it is available
+and any timetable a recent headline has stated (read by the language model, if one is set up).
 Everything is converted to value above replacement. In a league with a games cap,
 replacement level comes from the games left to play across the league rather than from roster spots.
 
@@ -280,6 +305,7 @@ lib/estimator.mjs       the per-game estimate shared by the live model and the b
 lib/backtest.mjs        tuning, rolling-origin evaluation, bootstrap intervals, ablation
 lib/reports.mjs         the NBA's official injury reports, past and present (PDF readers)
 lib/reasons.mjs         grades the written reason on a report line; reasons.json holds the grades
+lib/headlines.mjs       timetables stated in news headlines, extracted by a language model
 lib/absence.mjs         what an absence is worth: games played and the return dip, from past seasons
 lib/livescore.mjs       scores saved daily projections against what happened since
 lib/model.mjs           projections, consensus, market value, signals, waivers, weekly plan, matchup odds
@@ -290,6 +316,6 @@ lib/news.mjs            news classification, league outcomes, LLM briefing
 lib/refresh.mjs         the daily job
 public/                 the app
 test/                   unit tests
-scripts/                live source check, demo snapshot and build, report download, reason grading
+scripts/                live source check, demo snapshot and build, report and headline download, AI reading
 demo/state.json         the scrubbed snapshot the public demo runs on
 ```
