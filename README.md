@@ -21,7 +21,7 @@ draft offers against that league.
 | Home | Your standing, the three things to do today, the players the market misprices most, and the best trade available |
 | This week | Your best legal lineup for each day, with injury and return-date odds. Games-cap pacing in capped leagues, and the current matchup with a win probability in head-to-head ones |
 | Rankings | Five ranking sites side by side with Pivot's own projection |
-| Trades | Mock offers for any player or team, and a builder for your own. Each offer gets a written case for and against, plus charts Past trades shows every deal made in the league with what each side has produced since |
+| Trades | Mock offers for any player or team, and a builder for your own. Each offer gets a written case for and against, plus charts. Past trades shows every deal made in the league and what each side has produced since |
 | Waivers | The best free agents, matched against the weakest players on your roster |
 | News | The last three days of player news, sorted by how much each item matters to your team, with an optional briefing written by an LLM |
 
