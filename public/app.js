@@ -1252,6 +1252,36 @@ ${S.meta?.backtest ? accuracyPanel(S.meta.backtest, S.meta.live) : ''}
 }
 
 // How the projection model did on past seasons it was not tuned on, and how it is doing live.
+// What news is worth, from the backtest: the same forecasts made from box scores alone, then with
+// the NBA's injury report (reasons graded by a language model), then with timetables from headlines.
+const NEWS_ROWS = [
+  ['FP/G, rest of season (listed or out)', 'Points per game, rest of season', 'players on the report or out'],
+  ['Total fantasy points, next 14 days', 'Total points, next 14 days', 'everyone'],
+  ['Games played, next 14 days (listed out only)', 'Share of games played, next 14 days', 'players listed out'],
+  ['Total points, next 14 days (listed out only)', 'Total points, next 14 days', 'players listed out'],
+  ['Total points, rest of season (listed out only)', 'Total points, rest of season', 'players listed out'],
+];
+function newsBlock(news) {
+  const pooled = news?.pooled;
+  if (!pooled) return '';
+  const rows = NEWS_ROWS.filter(([key]) => pooled[key]).map(([key, label, who]) => {
+    const m = pooled[key];
+    const dp = m.base < 1 ? 3 : m.base < 10 ? 2 : 1;
+    const f = (x) => x.toFixed(dp);
+    // a step counts only when its whole 95% range is on one side of zero
+    const step = (val, d) => { const cls = d.hi < 0 ? 'up' : d.lo > 0 ? 'down' : 'muted'; return `<td class="${cls}" title="${esc(`Change ${d.diff > 0 ? '+' : ''}${f(d.diff)}, 95% range ${f(d.lo)} to ${f(d.hi)}`)}">${f(val)} <span class="ci">${d.diff > 0 ? '+' : d.diff < 0 ? '−' : ''}${f(Math.abs(d.diff))}</span></td>`; };
+    const total = m.tl != null ? (1 - m.tl / m.base) * 100 : (1 - m.ai / m.base) * 100;
+    const real = m.aiDiff.hi < 0 || (m.tlDiff && m.tlDiff.hi < 0);
+    return `<tr style="cursor:default"><td class="l">${esc(label)} <span class="ci">${esc(who)}, ${m.n.toLocaleString('en-US')} forecasts</span></td>
+      <td>${f(m.base)}</td>${step(m.ai, m.aiDiff)}${m.tl != null ? step(m.tl, m.tlDiff) : '<td class="muted">n/a</td>'}
+      <td class="${real ? 'up' : 'muted'}">${real ? `${Math.round(total)}% better` : 'No real change'}</td></tr>`;
+  }).join('');
+  return `<h3 class="acc-h">What news adds</h3>
+    <p class="muted">The same forecasts made three ways on the test seasons (${esc(news.folds.map((f) => f.test).join(', '))}): from box scores alone, then adding the NBA's official injury report with each written reason graded by a language model, then adding timetables stated in headlines. Figures are the average miss; the small number is the change from the column before. Green means the whole 95% range is an improvement.</p>
+    <div class="table-wrap"><table class="acc news"><thead><tr><th class="l">Forecast</th><th>Box scores</th><th>+ Injury report</th><th>+ Headlines</th><th>Overall</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="chart-note">News sharpens how many games a player will play, not how well he plays. It is used in the model only for players who are out.</p>`;
+}
+
 function accuracyPanel(bt, live) {
   const ci = (x) => `<span class="ci">${x.lo.toFixed(2)} to ${x.hi.toFixed(2)}</span>`;
   const signedD = (d) => `${d.diff >= 0 ? '+' : '−'}${Math.abs(d.diff).toFixed(2)}`;
@@ -1277,6 +1307,7 @@ function accuracyPanel(bt, live) {
         <tbody>${bt.ablations.map((k) => { const d = pooled.diff[k]; const helps = d.lo > 0; return `<tr style="cursor:default"><td class="l">${esc(bt.labels[k])}</td><td>${pooled.mae[k].mae.toFixed(2)}</td>
           <td class="${helps ? 'down' : 'muted'}">${signedD(d)} <span class="ci">${d.lo.toFixed(2)} to ${d.hi.toFixed(2)}</span></td></tr>`; }).join('')}</tbody></table></div>
       <p class="chart-note">The FantasyPros blend in the live model has no history to test against, so it is not in these numbers.</p>` : ''}
+    ${newsBlock(bt.news)}
     <h3 class="acc-h">Live this season</h3>${liveBlock}
     <p class="chart-note">Re-run the evaluation with <code>npm run backtest</code>.</p></div></div>`;
 }

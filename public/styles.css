@@ -1002,3 +1002,11 @@ body.demo[data-page="home"] .stage.court .jumbotron { bottom: calc(clamp(24px, 6
 .stage.court.cine .jumbotron { z-index: 5; }
 @media (prefers-reduced-motion: reduce) { .stage.court .stage-pin::before, .stage.court .stage-pin::after { display: none; } }
 .stage.court .stage-pin::before { height: calc(9vh + 58px); } /* the top bar runs up under the floating nav */
+/* the news table has five columns: the forecast label wraps and its note drops to a second line */
+table.acc.news td.l { white-space: normal; min-width: 150px; }
+table.acc.news td.l .ci { display: block; margin: 2px 0 0; }
+table.acc.news th, table.acc.news td { padding-left: 8px; padding-right: 8px; }
+table.acc.news td .ci { display: block; white-space: nowrap; margin: 2px 0 0; }
+table.acc.news th { white-space: normal; vertical-align: bottom; }
+table.acc.news td { vertical-align: top; }
+table.acc.news td:last-child { white-space: normal; min-width: 76px; }
