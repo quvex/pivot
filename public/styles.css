@@ -1010,3 +1010,31 @@ table.acc.news td .ci { display: block; white-space: nowrap; margin: 2px 0 0; }
 table.acc.news th { white-space: normal; vertical-align: bottom; }
 table.acc.news td { vertical-align: top; }
 table.acc.news td:last-child { white-space: normal; min-width: 76px; }
+
+/* ---------- past trades ---------- */
+.pt-list { display: grid; gap: 28px; }
+.pt-card { border-top: 2px solid var(--text); padding-top: 14px; }
+.pt-card.mine { border-top-color: var(--accent); }
+.pt-card > header { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; margin-bottom: 10px; }
+.pt-card > header h2 { font: 400 26px/1.1 var(--display); letter-spacing: -.01em; margin: 0; }
+.pt-card > header p { margin: 0; color: var(--muted); font-size: 13.5px; }
+.pt-lead { max-width: 74ch; font-size: 15px; line-height: 1.55; margin: 0 0 14px; }
+.pt-lead b { font-weight: 600; }
+.pt-h { font: 400 22px var(--display); margin: 8px 0 -8px; }
+.tchart { display: block; width: 100%; max-width: 680px; height: auto; margin: 4px 0 16px; overflow: visible; }
+.tchart .tgrid { stroke: var(--line); stroke-width: 1; }
+.tchart .tax { font: 10.5px var(--mono); fill: var(--muted); }
+.tchart .tline polyline { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.tchart .tline circle { stroke: var(--bg); stroke-width: 2; }
+.tchart .tline.s0 polyline { stroke: var(--accent); } .tchart .tline.s0 circle { fill: var(--accent); }
+.tchart .tline.s1 polyline { stroke: var(--down); stroke-dasharray: 5 4; } .tchart .tline.s1 circle { fill: var(--down); }
+.tchart .tend { font: 12px var(--sans); fill: var(--muted); }
+.tchart .tend .tnum { font: 600 13px var(--mono); fill: var(--text); }
+.pt-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px 28px; }
+.pt-side { min-width: 0; }
+.pt-side h3 { font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; margin: 0 0 4px; }
+.pt-side h3 .muted { font-weight: 400; text-transform: none; letter-spacing: 0; font-family: var(--sans); }
+.pt-side td.l { white-space: normal; min-width: 150px; }
+.pt-side td.l .ci { display: block; }
+.pt-side tr.pt-total td { border-top: 1px solid var(--text); border-bottom: 0; font-weight: 600; }
+@media (max-width: 760px) { .pt-card > header h2 { font-size: 22px; } .tchart .tend { font-size: 11px; } }

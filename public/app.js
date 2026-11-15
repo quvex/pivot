@@ -847,23 +847,88 @@ function renderTrades(app) {
   const mode = tr.mode || 'offers';
   app.innerHTML = `
     <div class="page-head"><div><h1>Trade tool</h1>
-      <p>${mode === 'build' ? 'Click players on either side. The verdict updates as you go.' : 'Offers drafted from your roster, judged by what they do to your final total and how the other side will see them.'}</p></div>
-      <div class="seg" id="tmode" role="tablist" aria-label="Trade tool mode">${[['offers', 'Mock offers'], ['build', 'Build an offer']].map(([k, l]) => `<button role="tab" aria-selected="${mode === k}" data-v="${k}" class="${mode === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <p>${mode === 'build' ? 'Click players on either side. The verdict updates as you go.' : mode === 'past' ? 'Every trade made in your league, with what each side has produced since.' : 'Offers drafted from your roster, judged by what they do to your final total and how the other side will see them.'}</p></div>
+      <div class="seg" id="tmode" role="tablist" aria-label="Trade tool mode">${[['offers', 'Mock offers'], ['build', 'Build an offer'], ['past', 'Past trades']].map(([k, l]) => `<button role="tab" aria-selected="${mode === k}" data-v="${k}" class="${mode === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
     <div class="stack">
-      ${mode === 'build'
+      ${mode === 'past' ? '<div id="past" class="pt-list"></div>' : mode === 'build'
         ? '<div class="panel"><header><h2>Build an offer</h2><p>Click players to add or remove them</p></header><div class="body" id="analyzer"></div></div>'
         : `<div class="panel"><header><h2>Mock offers</h2><p>${S.league ? esc(S.league.name) : 'No league synced'}</p></header><div class="body" id="finder"></div></div>`}
-      <div class="grid2">
+      ${mode === 'past' ? '' : `<div class="grid2">
         <div class="panel"><header><h2>Buy low</h2><p>Projection above recent production</p></header>${sigList('buy')}</div>
         <div class="panel"><header><h2>Sell high</h2><p>Recent production above projection</p></header>${sigList('sell')}</div>
-      </div>
+      </div>`}
     </div>`;
   $('#tmode').onclick = (e) => {
     const v = e.target.closest('[data-v]')?.dataset.v;
     if (v && v !== mode) { tr.mode = v; renderTrades(app); }
   };
-  if (mode === 'build') { renderAnalyzer(); if (ui.give.length && ui.get.length && !tr.custom) evalCustom(); }
+  if (mode === 'past') renderPastTrades();
+  else if (mode === 'build') { renderAnalyzer(); if (ui.give.length && ui.get.length && !tr.custom) evalCustom(); }
   else { renderFinder(); if (!tr.res && !tr.loading) loadOffers(); }
+}
+
+// ---------- past trades: what each side has done since the deal ----------
+function tradeChart(t) {
+  const W = 620, H = 200, L = 44, R = 150, T = 14, B = 26;
+  const n = t.dates.length;
+  if (n < 2) return '<p class="muted">The chart starts once the players have two days of games behind them.</p>';
+  const max = Math.max(1, ...t.sides.flatMap((s) => s.line));
+  const step = max > 800 ? 250 : max > 320 ? 100 : max > 120 ? 50 : 25;
+  const top = Math.ceil(max / step) * step;
+  const x = (i) => L + (i / (n - 1)) * (W - L - R), y = (v) => T + (1 - v / top) * (H - T - B);
+  const day = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const grid = Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
+  // keep the two end labels from sitting on top of each other
+  const ends = t.sides.map((s) => y(s.line.at(-1)));
+  if (ends.length === 2 && Math.abs(ends[0] - ends[1]) < 16) { const mid = (ends[0] + ends[1]) / 2, up = ends[0] <= ends[1] ? 0 : 1; ends[up] = mid - 8; ends[1 - up] = mid + 8; }
+  const ticks = [...new Set([0, Math.round((n - 1) / 2), n - 1])];
+  return `<svg class="tchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`Running total of fantasy points since the trade: ${t.sides.map((s) => `${s.team} ${s.since.total}`).join(', ')}`)}">
+    ${grid.map((v) => `<line class="tgrid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="tax" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join('')}
+    ${ticks.map((i) => `<text class="tax" x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${esc(day(t.dates[i]))}</text>`).join('')}
+    ${t.sides.map((s, k) => `<g class="tline s${k}">
+      <polyline points="${s.line.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}"/>
+      ${s.line.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${i === n - 1 ? 4.5 : 3}"><title>${esc(`${s.team}, through ${day(t.dates[i])}: ${v} points`)}</title></circle>`).join('')}
+      <text class="tend" x="${W - R + 12}" y="${ends[k] + 4}"><tspan class="tnum">${s.since.total.toLocaleString('en-US')}</tspan> <tspan>${esc(s.mine ? 'You got' : t.mine ? 'You gave' : s.team.slice(0, 16))}</tspan></text>
+    </g>`).join('')}
+  </svg>`;
+}
+function pastTradeCard(t) {
+  // the fantasy day the trade went through (US Eastern, as ESPN counts days)
+  const when = new Date(`${t.day}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  const [a, b] = t.sides;
+  const uneven = a && b && a.players.length !== b.players.length;
+  const lead = !a || !b ? '' : (() => {
+    const who = (s) => (s.mine ? 'the players you got' : t.mine ? 'the players you gave up' : `${esc(s.team)}'s side`);
+    const perGame = a.since.fpg != null && b.since.fpg != null ? ` Per game it is <b class="num">${a.since.fpg.toFixed(1)}</b> against <b class="num">${b.since.fpg.toFixed(1)}</b>.` : '';
+    const diff = a.since.total - b.since.total;
+    return `<p class="pt-lead">Since the deal, ${who(a)} have scored <b class="num">${a.since.total.toLocaleString('en-US')}</b> fantasy points in ${a.since.gp} game${a.since.gp === 1 ? '' : 's'} and ${who(b)} <b class="num">${b.since.total.toLocaleString('en-US')}</b> in ${b.since.gp}${diff ? `, a gap of <b class="num ${diff > 0 === a.mine || !t.mine ? 'up' : 'down'}">${Math.abs(diff).toLocaleString('en-US')}</b>` : ''}.${perGame}
+      ${uneven ? ` It was a ${a.players.length}-for-${b.players.length} deal, so the totals favour the side with more players; per game is the fairer comparison${S.week?.capped ? ' under a games cap' : ''}.` : ''}</p>`;
+  })();
+  const sideTable = (s) => `<div class="pt-side"><h3>${s.mine ? 'You got' : t.mine ? `You gave <span class="muted">to ${esc(s.team)}</span>` : `${esc(s.team)} got`}</h3>
+    <div class="table-wrap"><table><thead><tr><th class="l">Player</th><th title="His FP/G this season before the trade">Before</th><th title="Games played since the trade">GP</th><th title="His FP/G since the trade">Since</th><th title="Total fantasy points since the trade">Points</th><th title="What the model still expects: FP/G times expected games">Still ahead</th></tr></thead>
+    <tbody>${s.players.map((p) => { const d = p.since.fpg != null && p.before.fpg != null ? p.since.fpg - p.before.fpg : null; return `<tr ${byId.has(p.id) ? `data-player="${p.id}"` : 'style="cursor:default"'}><td class="l"><b>${esc(p.name)}</b> <span class="ci">${esc([p.team, p.pos].filter(Boolean).join(' '))}${p.note ? ` · ${esc(p.note.split('.')[0].split(',')[0])}` : ''}</span></td>
+      <td>${p.before.fpg != null ? p.before.fpg.toFixed(1) : '<span class="muted">n/a</span>'}</td><td>${p.since.gp}</td>
+      <td class="${d == null ? '' : d >= 0 ? 'up' : 'down'}">${p.since.fpg != null ? p.since.fpg.toFixed(1) : '<span class="muted">n/a</span>'}</td>
+      <td class="strong">${p.since.total}</td><td>${p.ahead ? p.ahead.total.toLocaleString('en-US') : '<span class="muted">n/a</span>'}</td></tr>`; }).join('')}
+      <tr class="pt-total" style="cursor:default"><td class="l">Side total</td><td></td><td>${s.since.gp}</td><td>${s.since.fpg != null ? s.since.fpg.toFixed(1) : ''}</td><td class="strong">${s.since.total.toLocaleString('en-US')}</td><td>${s.ahead.toLocaleString('en-US')}</td></tr>
+    </tbody></table></div></div>`;
+  return `<article class="pt-card${t.mine ? ' mine' : ''}">
+    <header><h2>${esc(when)}</h2><p>${t.mine ? `Your trade with ${esc(t.sides.find((s) => !s.mine)?.team || 'another team')}` : esc(t.sides.map((s) => s.team).join(' and '))}</p></header>
+    ${lead}
+    ${tradeChart(t)}
+    <div class="pt-sides">${t.sides.map(sideTable).join('')}</div>
+    ${a && b ? `<p class="chart-note">Still ahead is the model's rest-of-season expectation for each player (FP/G times the games it expects him to play): ${a.ahead.toLocaleString('en-US')} for ${a.mine ? 'your side' : esc(a.team)} against ${b.ahead.toLocaleString('en-US')}. "Since" counts every game a player has played, whether or not he was in a lineup.</p>` : ''}
+  </article>`;
+}
+function renderPastTrades() {
+  const el = $('#past');
+  if (!el) return;
+  const list = S.pastTrades || [];
+  if (!S.league) { el.innerHTML = '<p class="empty">Sync your ESPN league in Settings to see the trades made in it.</p>'; return; }
+  if (!list.length) { el.innerHTML = '<p class="empty">No trades have gone through in this league yet. When one does, it shows up here after the next update, with a running score for each side.</p>'; return; }
+  const mine = list.filter((t) => t.mine), others = list.filter((t) => !t.mine);
+  el.innerHTML = `${mine.length ? mine.map(pastTradeCard).join('') : '<p class="empty">You have not made a trade this season.</p>'}
+    ${others.length ? `<h2 class="pt-h">Other trades in the league</h2>${others.map(pastTradeCard).join('')}` : ''}`;
 }
 
 // Open the builder with a trade loaded (from an offer card, the drawer, or a fresh start).
