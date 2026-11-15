@@ -17,13 +17,13 @@
     "faces:setup": "sh scripts/faces-setup.sh"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.8.0"
+    "@anthropic-ai/sdk": "^1.8.0",
+    "pdfjs-dist": "^4.10.38"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "eslint": "^9.39.5",
     "globals": "^15.15.0",
-    "pdfjs-dist": "^4.10.38",
     "playwright": "^1.49.1"
   },
   "engines": {
