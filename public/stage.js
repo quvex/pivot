@@ -250,8 +250,8 @@ function loadBody() {
 // pieces keep the body's skin weights they bend with it in every pose. Offsets are in metres on the
 // unscaled model.
 const GARMENTS = {
-  jersey: { bones: ['Spine', 'Spine1', 'Spine2', 'LeftShoulder', 'RightShoulder'], out: 0.011, hang: 0.026 },
-  shorts: { bones: ['Hips', 'LeftUpLeg', 'RightUpLeg'], out: 0.01, flare: 0.022 },
+  jersey: { bones: ['Spine', 'Spine1', 'Spine2', 'LeftShoulder', 'RightShoulder'], out: 0.008, hang: 0.006 },
+  shorts: { bones: ['Hips', 'LeftUpLeg', 'RightUpLeg'], out: 0.008, flare: 0.018 },
   shoes: { bones: ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase', 'LeftToe_End', 'RightToe_End'], out: 0.014 },
 };
 const SKIN_BONES = ['Neck', 'Head', 'HeadTop_End', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm', 'LeftHand', 'RightHand', 'LeftHandFinger', 'RightHandFinger', 'LeftLeg', 'RightLeg'];
@@ -330,12 +330,15 @@ function planKit(src) {
     const j = next ? bones.indexOf(next) : -1;
     return j >= 0 ? head[j].clone().sub(head[i]).normalize() : null;
   });
-  // the body without its head, for when a face is set on it
-  const headW = new Float32Array(n);
-  for (let i = 0; i < n; i++) for (let k = 0; k < 4; k++) if (/^Head/.test(names[si.getComponent(i, k)])) headW[i] += sw.getComponent(i, k);
+  // The body without its head, for when a face is set on it: the top 15% of its height at rest,
+  // the head (about an eighth, crown to chin) and the top of the neck, which the bust brings with
+  // it. Cut by height the edge is level; by skin weight it was ragged, because the head's
+  // weighting runs well down the neck.
+  const tallest = g.boundingBox.max.y, skull = tallest - 0.152 * (tallest - g.boundingBox.min.y);
+  const above = (i) => pos.getY(i) > skull;
   const noHead = [];
   for (let t = 0; t < idx.length; t += 3) {
-    if ((headW[idx[t]] > 0.5) + (headW[idx[t + 1]] > 0.5) + (headW[idx[t + 2]] > 0.5) < 2) noHead.push(idx[t], idx[t + 1], idx[t + 2]);
+    if (!(above(idx[t]) || above(idx[t + 1]) || above(idx[t + 2]))) noHead.push(idx[t], idx[t + 1], idx[t + 2]);
   }
   return { skin, garments, head, axis, noHead };
 }
@@ -345,7 +348,12 @@ function planKit(src) {
 // leaner by his body mass index against a typical NBA frame (about 6'7" and 218 lb). The mannequin
 // needs a lot of help (narrow waist, broad hips); the realistic body only a little.
 const MANNEQUIN_FRAME = { Hips: 0.74, Spine: 1.34, Spine1: 1.2, Spine2: 1.1, Shoulder: 1.15, Arm: 1.1, ForeArm: 1.05, UpLeg: 0.8, Leg: 0.94, Neck: 1.2 };
-const HUMAN_FRAME = { Hips: 1, Spine: 1.04, Spine1: 1.04, Spine2: 1.05, Shoulder: 1.08, Arm: 1.06, ForeArm: 1.03, UpLeg: 1, Leg: 1, Neck: 1.05 };
+// The base mesh is an average man: a straight-sided torso, narrow shoulders, slim arms. A player
+// is built in a V: chest and deltoids broader, waist and pelvis narrower, arms and legs heavier.
+// Measured against a real build: from the front a player's shoulders span about a quarter of his
+// height, arms included. So the chest fills out but the arms stay at natural thickness, close in.
+const HUMAN_FRAME = { Hips: 0.9, Spine: 0.93, Spine1: 1.02, Spine2: 1.1, Shoulder: 1.04, Arm: 1, ForeArm: 1, UpLeg: 0.98, Leg: 1.02, Neck: 0.92 };
+const CLAVICLE = 1;
 function girthOf(pl, FRAME) {
   const h = (pl.height || 79) * 0.0254, kg = (pl.weight || 218) * 0.4536;
   const k = Math.max(-0.14, Math.min(0.28, ((kg / (h * h)) - 24.6) / 24.6 * 1.5));
@@ -434,7 +442,7 @@ const STANCES = {
   // off the ball: easy athletic stance, arms hanging loose with a little bend at the elbow
   relaxed: {
     body: { Spine: [0.1, 0, 0], LeftUpLeg: [-0.28, 0, 0.05], RightUpLeg: [-0.28, 0, -0.05], LeftLeg: [0.48, 0, 0], RightLeg: [0.48, 0, 0], LeftFoot: [-0.2, 0, 0], RightFoot: [-0.2, 0, 0] },
-    arms: { LeftArm: [0.22, -1, 0.06], LeftForeArm: [0.12, -1, 0.4], RightArm: [-0.22, -1, 0.06], RightForeArm: [-0.12, -1, 0.4] },
+    arms: { LeftArm: [0.1, -1, 0.04], LeftForeArm: [0.06, -1, 0.3], RightArm: [-0.1, -1, 0.04], RightForeArm: [-0.06, -1, 0.3] },
   },
   // a guard with the ball: low, the right hand working the ball out in front, the left arm guarding it
   dribble: {
@@ -536,6 +544,8 @@ function dressFigure(f, body, kit, base) {
     f.root.add(wrap);
     shown = model; asset = real;
     const rBones = bonesOf(model);
+    for (const side of ['Left', 'Right']) rBones[`${side}Arm`]?.position.multiplyScalar(CLAVICLE);
+    model.updateMatrixWorld(true);
     f.wrap = wrap;
     f.hipPair = [rBones.Hips, pBones.Hips];
     f.pairs = FOLLOW.filter(([a, b]) => rBones[a] && rBones[b] && pBones[a] && pBones[b]).map(([a, b]) => [rBones[a], rBones[b], pBones[a], pBones[b]]);
@@ -723,7 +733,8 @@ async function attachFace(f, url, GLTFLoader) {
   let neck = -1, narrow = Infinity;
   for (let i = Math.round(N * 0.35); i <= Math.round(N * 0.85); i++) if (width[i] > 0 && width[i] < narrow) { narrow = width[i]; neck = i; }
   const shoulders = neck >= 0 && Math.max(...width.slice(neck + 1)) > narrow * 1.5;
-  const cut = shoulders ? box.max.y - ((neck + 0.5) / N) * H : -Infinity;
+  // a slice and a half above the narrowest point, so the neckline of the jersey in the photo stays out
+  const cut = shoulders ? box.max.y - ((neck - 1) / N) * H : -Infinity;
   // drop everything below the neck; measure what is left
   const kept = new THREE.Box3();
   for (const m of meshes) {
@@ -732,7 +743,8 @@ async function attachFace(f, url, GLTFLoader) {
     const ys = new Float32Array(pos.count);
     for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); ys[i] = v.y; if (v.y >= cut) kept.expandByPoint(v); }
     const tris = [];
-    for (let t = 0; t < idx.length; t += 3) if (ys[idx[t]] >= cut || ys[idx[t + 1]] >= cut || ys[idx[t + 2]] >= cut) tris.push(idx[t], idx[t + 1], idx[t + 2]);
+    // only triangles wholly above the cut: one that straddles it leaves a jagged spike at the collar
+    for (let t = 0; t < idx.length; t += 3) if (ys[idx[t]] >= cut && ys[idx[t + 1]] >= cut && ys[idx[t + 2]] >= cut) tris.push(idx[t], idx[t + 1], idx[t + 2]);
     g.setIndex(tris);
     // a bust with no normals would light black
     if (!g.attributes.normal) g.computeVertexNormals();
@@ -743,6 +755,20 @@ async function attachFace(f, url, GLTFLoader) {
   }
   if (kept.isEmpty() || !f.headBone || !f.neckBone || !f.alive()) return;
   const base = Math.max(kept.min.y, cut);
+  // The neck at the bottom of the bust still carries the photo's colours (often a light jersey
+  // collar). The body is a solid figure, so the neck fades into it: fully dark at the cut, the
+  // photo's own colours from just under the chin.
+  const fade = 0.3 * (kept.max.y - base);
+  for (const m of meshes) {
+    const pos = m.geometry.attributes.position, col = m.geometry.attributes.color;
+    if (!col) continue;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const t = Math.max(0, Math.min(1, (v.y - base) / fade));
+      if (t < 1) { const k = t * t; col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k); }
+    }
+    col.needsUpdate = true;
+  }
   // the body's head, from the crown down to the base of the neck, as posed right now
   f.root.updateMatrixWorld(true);
   const headAt = f.headBone.getWorldPosition(new THREE.Vector3());
@@ -750,19 +776,29 @@ async function attachFace(f, url, GLTFLoader) {
   const up = headAt.clone().sub(neckAt).normalize();
   const crown = headAt.clone().addScaledVector(up, f.headAbove);
   const span = crown.distanceTo(neckAt);
-  // stand the trimmed bust on that span: crown to crown, facing the way he faces
-  const top = new THREE.Vector3((kept.min.x + kept.max.x) / 2, kept.max.y, (kept.min.z + kept.max.z) / 2);
-  bust.position.sub(top);
+  // stand the trimmed bust on his neck, facing the way he faces
+  const foot = new THREE.Vector3((kept.min.x + kept.max.x) / 2, base, (kept.min.z + kept.max.z) / 2);
+  bust.position.sub(foot);
   const holder = new THREE.Group();
   holder.add(bust);
-  // Sized to a real head: crown to the base of the neck, but never wider than a head is, so a
-  // big haircut in the photo cannot turn him into a bobblehead.
-  const byHeight = (span * 1.02) / (kept.max.y - base);
-  const wide = (0.215 * (f.metres / 1.98)) / Math.max(1e-6, kept.max.x - kept.min.x);
-  holder.scale.setScalar(Math.min(byHeight, wide));
+  // Sized to a real head. The width is read across the face (the upper part of what is kept,
+  // above any collar left from the photo) and set to about 17.5 cm with hair, a little more for
+  // a taller man; the crown-to-neck span only caps it, so a long neck in the photo cannot shrink it.
+  const faceTop = kept.max.y - 0.12 * (kept.max.y - base), faceBottom = kept.max.y - 0.5 * (kept.max.y - base);
+  let fl = Infinity, fh = -Infinity;
+  for (const m of meshes) {
+    const pos = m.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); if (v.y <= faceTop && v.y >= faceBottom) { fl = Math.min(fl, v.x); fh = Math.max(fh, v.x); } }
+  }
+  const faceW = fh > fl ? fh - fl : kept.max.x - kept.min.x;
+  const byWidth = (0.185 * (0.85 + 0.15 * (f.metres / 1.98))) / faceW;
+  const byHeight = (span * 1.6) / (kept.max.y - base);
+  holder.scale.setScalar(Math.min(byWidth, byHeight));
   // turn it to face his way, then tip it to the lean of his neck
   holder.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up).multiply(f.root.getWorldQuaternion(new THREE.Quaternion()));
-  holder.position.copy(crown);
+  // at the top of the neck (the chin clears the shoulder line, as on a real build), overlapping the
+  // stump a little so no gap shows
+  holder.position.copy(headAt).addScaledVector(up, -0.03 * (f.metres / 1.98));
   f.root.parent.add(holder);
   holder.updateMatrixWorld(true);
   f.headBone.attach(holder);
