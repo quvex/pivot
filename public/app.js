@@ -869,14 +869,17 @@ function profileTable(t) {
 }
 
 // ---------- trades ----------
-function sigList(type) {
-  const list = S.players.filter((p) => p.signal?.type === type).sort((a, b) => b.signal.score - a.signal.score).slice(0, 12);
+// Buy-low and sell-high candidates in one full-width list, strongest signal first, so neither
+// side runs on past the other. A filter narrows it to one side.
+function sigBoard(filter = 'all') {
+  const list = S.players.filter((p) => p.signal && (filter === 'all' || p.signal.type === filter)).sort((a, b) => b.signal.score - a.signal.score).slice(0, filter === 'all' ? 16 : 12);
   if (!list.length) return '<div class="empty">Nothing stands out today.</div>';
-  return list.map((p) => `<div class="sig" data-player="${p.id}">
-    <div class="row"><span><b>${esc(p.name)}</b> <span class="muted">${esc(p.team)} · ${esc(p.pos)}</span> ${ownChip(p.own)}</span>
-      <span class="num muted" title="Signal strength">${fmt(p.model.fpg)} proj · ${fmt(p.market.recent)} recent<span class="meter ${type}"><i style="width:${Math.min(100, p.signal.score * 11)}%"></i></span></span></div>
-    <ul>${p.signal.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
-    <button class="btn small" data-mock="${p.id}" style="margin-top:8px">Mock offers</button></div>`).join('');
+  return `<ol class="sig-board">${list.map((p) => `<li class="sig-row" data-player="${p.id}">
+    <span class="b-call ${p.signal.type}">${p.signal.type === 'buy' ? 'Buy low' : 'Sell high'}</span>
+    <span class="sig-who"><b>${esc(p.name)}</b><small>${esc(p.team)} · ${esc(p.pos)} ${ownChip(p.own)}</small></span>
+    ${gapStrip(p)}
+    <span class="sig-why">${esc(p.signal.reasons[0] || '')}</span>
+    <button class="btn small" data-mock="${p.id}">Mock offers</button></li>`).join('')}</ol>`;
 }
 
 const tradeKey = (t) => `${t.give.join('.')}>${t.get.join('.')}`;
@@ -937,11 +940,17 @@ function renderTrades(app) {
       ${mode === 'past' ? '<div id="past" class="pt-list"></div>' : mode === 'build'
         ? '<div class="panel"><header><h2>Build an offer</h2><p>Click players to add or remove them</p></header><div class="body" id="analyzer"></div></div>'
         : `<div class="panel"><header><h2>Mock offers</h2><p>${S.league ? esc(S.league.name) : 'No league synced'}</p></header><div class="body" id="finder"></div></div>`}
-      ${mode === 'past' ? '' : `<div class="grid2">
-        <div class="panel"><header><h2>Buy low</h2><p>Projection above recent production</p></header>${sigList('buy')}</div>
-        <div class="panel"><header><h2>Sell high</h2><p>Recent production above projection</p></header>${sigList('sell')}</div>
-      </div>`}
+      ${mode === 'past' ? '' : `<div class="panel"><header><h2>Mispriced right now</h2>
+        <div class="seg small" id="sigf" role="group" aria-label="Show">${[['all', 'Both'], ['buy', 'Buy low'], ['sell', 'Sell high']].map(([k, l]) => `<button type="button" data-f="${k}" class="${(tr.sig || 'all') === k ? 'on' : ''}" aria-pressed="${(tr.sig || 'all') === k}">${l}</button>`).join('')}</div></header>
+        <div id="sigboard">${sigBoard(tr.sig || 'all')}</div></div>`}
     </div>`;
+  if ($('#sigf')) $('#sigf').onclick = (e) => {
+    const f = e.target.closest('[data-f]')?.dataset.f;
+    if (!f || f === (tr.sig || 'all')) return;
+    tr.sig = f;
+    $('#sigboard').innerHTML = sigBoard(f);
+    $('#sigf').querySelectorAll('[data-f]').forEach((b) => { b.classList.toggle('on', b.dataset.f === f); b.setAttribute('aria-pressed', String(b.dataset.f === f)); });
+  };
   $('#tmode').onclick = (e) => {
     const v = e.target.closest('[data-v]')?.dataset.v;
     if (v && v !== mode) { tr.mode = v; renderTrades(app); }
@@ -1234,18 +1243,16 @@ function renderWaivers(app) {
           : w.moves.length ? `<div class="trades">${w.moves.map(move).join('')}</div>`
           : '<div class="empty">No add clears the bar today: nobody available projects meaningfully above your weakest player.</div>'}
       </div>
-      <div class="grid2 wide-left">
-        <div class="panel"><header><h2>Best available</h2><p>Sorted by rest-of-season value</p></header><div class="table-wrap"><table>
+      <div class="panel"><header><h2>Your weakest spots</h2><p>Lowest value first: the players an add would replace</p></header>
+        ${w.drops.length ? `<div class="weak-strip">${w.drops.map((id) => { const p = byId.get(id); return `<button type="button" class="weak" data-player="${p.id}"><b>${esc(p.name)}</b><span class="muted">${esc(p.team)} · ${esc(p.pos)}</span><span class="num">${fmt(p.model.fpg)} <small>proj</small></span>
+          <small class="muted">${esc(p.avail.note || (p.signal ? `${p.signal.type === 'buy' ? 'Buy-low candidate' : 'Sell-high candidate'}: ${p.signal.reasons[0]}` : `${fmt(p.s.l15?.fp)} FP/G over the last 15 days`))}</small></button>`; }).join('')}</div>` : '<div class="empty">No roster set.</div>'}
+      </div>
+      <div class="panel"><header><h2>Best available</h2><p>Sorted by rest-of-season value</p></header><div class="table-wrap"><table>
           <thead><tr><th class="l" style="cursor:default">Player</th><th style="cursor:default" title="Projected fantasy points per game, rest of season">Proj</th><th style="cursor:default" title="Expected per game over the next few games">Next</th><th style="cursor:default">L15</th><th style="cursor:default">Season</th><th style="cursor:default" title="Rostered in ESPN leagues, and change this week">Rost%</th></tr></thead>
           <tbody>${w.adds.map(({ id, why }) => { const p = byId.get(id); return `<tr data-player="${p.id}">
             <td class="l">${playerCell(p)}${why.length ? `<div class="muted" style="font-size:12px;white-space:normal;max-width:52ch;margin-top:2px">${esc(why[0])}</div>` : ''}</td>
             <td class="strong">${fmt(p.model.fpg)}</td><td>${fmt(p.model.next)}</td><td>${fmt(p.s.l15?.fp)}</td><td>${fmt(p.s.season?.fp)}</td>
             <td class="muted">${fmt(p.owned, 0)} ${p.ownedChange >= 1 ? `<span class="up">+${fmt(p.ownedChange, 0)}</span>` : p.ownedChange <= -1 ? `<span class="down">${fmt(p.ownedChange, 0)}</span>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nobody worth adding is available.</td></tr>'}</tbody></table></div></div>
-        <div class="panel"><header><h2>Your weakest spots</h2><p>Lowest value first</p></header>
-          ${w.drops.map((id) => { const p = byId.get(id); return `<div class="sig" data-player="${p.id}"><div class="row"><span><b>${esc(p.name)}</b> <span class="muted">${esc(p.team)} · ${esc(p.pos)}</span></span><span class="num muted">${fmt(p.model.fpg)} proj</span></div>
-            <div class="muted" style="font-size:12px;margin-top:2px">${esc(p.avail.note || (p.signal ? `${p.signal.type === 'buy' ? 'Buy-low candidate' : 'Sell-high candidate'}: ${p.signal.reasons[0]}` : `${fmt(p.s.l15?.fp)} FP/G over the last 15 days`))}</div></div>`; }).join('') || '<div class="empty">No roster set.</div>'}
-        </div>
-      </div>
     </div>`;
 }
 

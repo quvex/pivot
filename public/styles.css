@@ -1135,3 +1135,31 @@ body[data-page="home"] .statusbar { background: var(--bg); }
   .q-board .r-row .q-strip { grid-column: 2 / -1; grid-row: 2; }
   .q-board .r-row .q-spark, .q-board .r-row .q-rost { display: none; }
 }
+
+/* ---------- Trades: one mispriced list instead of two uneven columns ---------- */
+.panel > header .seg.small { margin-left: auto; }
+.seg.small button { padding: 5px 12px; font-size: 12.5px; }
+.sig-board { list-style: none; margin: 0; padding: 0; }
+.sig-row { display: grid; grid-template-columns: 86px minmax(150px, 1fr) minmax(150px, 1fr) minmax(0, 1.6fr) auto; gap: 8px 18px; align-items: center; padding: 11px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.sig-row:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.sig-row .b-call { justify-self: start; font: 600 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border: 1px solid currentColor; border-radius: 3px; }
+.sig-who { display: grid; gap: 2px; min-width: 0; }
+.sig-who b { font-weight: 600; }
+.sig-who small { font: 11.5px var(--mono); color: var(--muted); }
+.sig-why { font-size: 13px; color: var(--muted); line-height: 1.4; }
+@media (max-width: 900px) {
+  .sig-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .sig-row .q-strip { grid-column: 1 / -1; }
+  .sig-row .sig-why { grid-column: 1 / -1; }
+}
+
+/* ---------- Waivers: weakest spots as a strip above the full-width table ---------- */
+.weak-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 10px; padding: 4px 0 2px; }
+.weak { display: grid; gap: 3px; text-align: left; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: inherit; color: inherit; cursor: pointer; transition: border-color .2s, transform .2s; }
+.weak:hover { border-color: var(--accent); transform: translateY(-1px); }
+.weak b { font-weight: 600; }
+.weak .num { font: 500 18px var(--mono); }
+.weak .num small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.weak > small { font-size: 12px; line-height: 1.35; }
+/* recommended moves: auto-fit, so two moves share the row instead of leaving a third of it empty */
+.trades { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
