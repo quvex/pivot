@@ -707,7 +707,7 @@ function animateFigure(f, dt, snap) {
 // ---------- faces: made on this computer only ----------
 // A face is a 3D bust made from the player's photo by TripoSR on this computer (lib/heads.mjs). The bust is trimmed at
 // the neck (the narrowest slice above the shoulders), sized to the body's head, set on it facing
-// the way he faces, and carried by the head bone; the body's own head is hidden under it. The body stays a solid figure; the face keeps its shading.
+// the way he faces, and carried by the head bone; the body's own head is hidden under it. His arms and legs take the skin tone of his face.
 async function attachFace(f, url, GLTFLoader) {
   const gltf = await new GLTFLoader().loadAsync(url);
   const bust = gltf.scene;
@@ -755,9 +755,23 @@ async function attachFace(f, url, GLTFLoader) {
   }
   if (kept.isEmpty() || !f.headBone || !f.neckBone || !f.alive()) return;
   const base = Math.max(kept.min.y, cut);
+  // his skin tone, from his own face, so his arms and legs match it: the cheeks and chin on the
+  // front of the bust, keeping the brighter half so hair, beard and shadow do not darken it
+  const tall = kept.max.y - base, midZ = (kept.min.z + kept.max.z) / 2, samples = [];
+  for (const m of meshes) {
+    const pos = m.geometry.attributes.position, col = m.geometry.attributes.color;
+    if (!col) continue;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const down = (kept.max.y - v.y) / tall;
+      if (down >= 0.35 && down <= 0.62 && v.z >= midZ) samples.push([col.getX(i), col.getY(i), col.getZ(i)]);
+    }
+  }
+  samples.sort((p, q) => (q[0] + q[1] + q[2]) - (p[0] + p[1] + p[2]));
+  const bright = samples.slice(0, Math.max(1, Math.floor(samples.length / 2)));
+  const tone = samples.length ? new THREE.Color().setRGB(...[0, 1, 2].map((k) => bright.reduce((t, p) => t + p[k], 0) / bright.length)) : null;
   // The neck at the bottom of the bust still carries the photo's colours (often a light jersey
-  // collar). The body is a solid figure, so the neck fades into it: fully dark at the cut, the
-  // photo's own colours from just under the chin.
+  // collar): it fades into his skin tone, the photo's own colours from just under the chin.
   const fade = 0.3 * (kept.max.y - base);
   for (const m of meshes) {
     const pos = m.geometry.attributes.position, col = m.geometry.attributes.color;
@@ -765,7 +779,7 @@ async function attachFace(f, url, GLTFLoader) {
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
       const t = Math.max(0, Math.min(1, (v.y - base) / fade));
-      if (t < 1) { const k = t * t; col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k); }
+      if (t < 1 && tone) { const k = t * t; col.setXYZ(i, tone.r + (col.getX(i) - tone.r) * k, tone.g + (col.getY(i) - tone.g) * k, tone.b + (col.getZ(i) - tone.b) * k); }
     }
     col.needsUpdate = true;
   }
@@ -805,6 +819,7 @@ async function attachFace(f, url, GLTFLoader) {
   // hide his own head under the face
   for (const { o, plan } of f.skins) {
     if (plan.noHead) o.geometry.setIndex(plan.noHead);
+    if (tone) o.material = new THREE.MeshLambertMaterial({ color: tone });
   }
   f.bust = holder;
 }
@@ -885,18 +900,17 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, o
   scene.add(sun, sun.target);
 
   const base = {
-    // The players are drawn as solid figures in the ink colour: anything this dark is filled, not
-    // hatched (the engraving shader inks every pixel below about 12% brightness), so they stand out
-    // from the hatched floor instead of dissolving into it. Numbers are knocked out in paper.
-    skin: new THREE.MeshBasicMaterial({ color: 0x000000 }),
-    shoe: cloth(0x000000, true),
+    // shaded, so the engraving hatches them: skin a mid tone (each player's own tone once his face
+    // is on), a light kit for one side and a dark kit for the other
+    skin: new THREE.MeshLambertMaterial({ color: grey(0.55) }),
+    shoe: cloth(grey(0.18)),
     ring: new THREE.MeshBasicMaterial({ color: grey(0.05) }),
     ball: new THREE.MeshLambertMaterial({ color: grey(0.1) }), // inked dark so it reads against the floor and the kits
   };
   // home and away: light kit for the underpriced side, dark kit for the overpriced side
   const kits = {
-    under: { ...base, jersey: cloth(0x000000, true), shorts: cloth(0x000000, true), ink: '#f4f4f4', number: new THREE.MeshBasicMaterial({ color: grey(0.97) }) },
-    over: { ...base, jersey: cloth(0x000000, true), shorts: cloth(0x000000, true), ink: '#f4f4f4', number: new THREE.MeshBasicMaterial({ color: grey(0.97) }) },
+    under: { ...base, jersey: cloth(grey(0.86)), shorts: cloth(grey(0.7)), ink: '#111', number: new THREE.MeshBasicMaterial({ color: grey(0.04) }) },
+    over: { ...base, jersey: cloth(grey(0.2)), shorts: cloth(grey(0.14)), ink: '#f4f4f4', number: new THREE.MeshBasicMaterial({ color: grey(0.97) }) },
   };
 
   const all = [teams.under || [], teams.over || []];
