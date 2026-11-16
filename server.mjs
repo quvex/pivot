@@ -70,6 +70,7 @@ async function updateSettings(body) {
   for (const key of body.clear || []) if (['espnS2', 'swid', 'anthropicKey', 'altKey'].includes(key)) patch[key] = '';
   if (typeof body.aiModel === 'string' && /^claude-[a-z0-9-]+$/.test(body.aiModel)) patch.aiModel = body.aiModel;
   if (Array.isArray(body.manualRoster)) patch.manualRoster = [...new Set(body.manualRoster.map(Number).filter(Number.isFinite))].slice(0, 30);
+  if (Array.isArray(body.untouchables)) patch.untouchables = [...new Set(body.untouchables.map(Number).filter(Number.isFinite))].slice(0, 60);
   if ('refreshHour' in body) { const h = cleanNum(body.refreshHour, 0, 23); if (h != null) patch.refreshHour = Math.round(h); }
   if (body.scoring && typeof body.scoring === 'object') {
     const scoring = {};
@@ -99,7 +100,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && url.pathname === '/api/trade/offers') {
         if (!data) return send(409, { error: 'No data yet' });
         const num = (k) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : null);
-        return send(200, mockOffers(tradeContext(data, ownership(data, loadSettings())), { playerId: num('player'), teamId: num('team') }));
+        return send(200, mockOffers(tradeContext(data, ownership(data, loadSettings())), { playerId: num('player'), teamId: num('team'), untouchable: loadSettings().untouchables || [] }));
       }
       if (req.method === 'POST') {
         if (!String(req.headers['content-type'] || '').includes('application/json')) return send(415, { error: 'Expected JSON' });

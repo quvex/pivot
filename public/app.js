@@ -25,7 +25,7 @@ async function demoApi(path, body) {
   demo ||= { state: await (await fetch('state.json')).json() };
   const url = new URL(path, location.href);
   const p = url.pathname;
-  if (p.endsWith('/api/state')) return demo.state;
+  if (p.endsWith('/api/state')) { const locked = new Set(untouchables()); return { ...demo.state, trades: (demo.state.trades || []).filter((t) => ![...t.give, ...t.get].some((id) => locked.has(id))) }; }
   if (p.endsWith('/api/status')) return { job: demo.state.job, refreshedAt: demo.state.meta.refreshedAt };
   if (p.includes('/api/trade/')) {
     if (!demo.ctx) {
@@ -35,7 +35,7 @@ async function demoApi(path, body) {
       demo.lib = { evaluateTrade, mockOffers };
     }
     const num = (k) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : null);
-    if (p.endsWith('/offers')) return demo.lib.mockOffers(demo.ctx, { playerId: num('player'), teamId: num('team') });
+    if (p.endsWith('/offers')) return demo.lib.mockOffers(demo.ctx, { playerId: num('player'), teamId: num('team'), untouchable: untouchables() });
     if (p.endsWith('/evaluate')) return { trade: demo.lib.evaluateTrade(demo.ctx, body.give || [], body.get || []) };
   }
   throw new Error('This is a read-only demo. Run Pivot on your own league to change settings or refresh data.');
@@ -927,6 +927,7 @@ function renderTrades(app) {
       ${mode === 'past' ? '<div id="past" class="pt-list"></div>' : mode === 'build'
         ? '<div class="panel"><header><h2>Build an offer</h2><p>Click players to add or remove them</p></header><div class="body" id="analyzer"></div></div>'
         : `<div class="panel"><header><h2>Mock offers</h2><p>${S.league ? esc(S.league.name) : 'No league synced'}</p></header><div class="body" id="finder"></div></div>`}
+      ${mode === 'past' ? '' : untouchablePanel()}
       ${mode === 'past' ? '' : `<div class="panel"><header><h2>Mispriced right now</h2>
         <div class="seg small" id="sigf" role="group" aria-label="Show">${[['all', 'Both'], ['buy', 'Buy low'], ['sell', 'Sell high']].map(([k, l]) => `<button type="button" data-f="${k}" class="${(tr.sig || 'all') === k ? 'on' : ''}" aria-pressed="${(tr.sig || 'all') === k}">${l}</button>`).join('')}</div></header>
         <div id="sigboard">${sigBoard(tr.sig || 'all')}</div></div>`}
@@ -938,6 +939,7 @@ function renderTrades(app) {
     $('#sigboard').innerHTML = sigBoard(f);
     $('#sigf').querySelectorAll('[data-f]').forEach((b) => { b.classList.toggle('on', b.dataset.f === f); b.setAttribute('aria-pressed', String(b.dataset.f === f)); });
   };
+  wireUntouchables(app);
   $('#tmode').onclick = (e) => {
     const v = e.target.closest('[data-v]')?.dataset.v;
     if (v && v !== mode) { tr.mode = v; renderTrades(app); }
@@ -1022,6 +1024,90 @@ function openBuilder({ give = ui.give, get = ui.get, partner = undefined } = {})
 }
 
 const otherTeams = () => (S.league?.teams || []).filter((t) => t.id !== S.myTeam?.id);
+
+// ---------- untouchables: players that are off the table ----------
+// Yours that you won't move, and theirs that their managers have said they won't. Mock offers
+// and the home page's suggestions leave them out. Kept in settings (in the browser for the demo).
+const UT_KEY = 'pivot.untouchables';
+function untouchables() {
+  if (!DEMO) return S?.settings?.untouchables || [];
+  try { return JSON.parse(localStorage.getItem(UT_KEY) || '[]'); } catch { return []; }
+}
+const isLocked = (id) => untouchables().includes(id);
+async function setUntouchables(list) {
+  list = [...new Set(list)].slice(0, 60);
+  if (DEMO) { try { localStorage.setItem(UT_KEY, JSON.stringify(list)); } catch { /* private mode: lasts this visit */ } if (S.settings) S.settings.untouchables = list; }
+  else await api('/api/settings', { untouchables: list });
+  await load();
+}
+const toggleLocked = (id) => setUntouchables(isLocked(id) ? untouchables().filter((x) => x !== id) : [...untouchables(), id]);
+const LOCK = '<svg class="lock" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><rect x="2.2" y="5.2" width="7.6" height="5.6" rx="1.2" fill="currentColor"/><path d="M3.9 5.4V3.9a2.1 2.1 0 0 1 4.2 0v1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+const lockTag = (id) => (isLocked(id) ? `<span class="ut-tag" title="Untouchable">${LOCK}<span class="sr">untouchable</span></span>` : '');
+
+function untouchablePanel() {
+  const ids = untouchables().filter((id) => byId.has(id));
+  const owner = (p) => (p.own?.type === 'mine' ? 'Yours' : p.own?.type === 'team' ? p.own.team : p.team);
+  const groups = new Map();
+  for (const id of ids) { const p = byId.get(id), k = owner(p); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
+  const order = [...groups.keys()].sort((a, b) => (a === 'Yours' ? -1 : b === 'Yours' ? 1 : a.localeCompare(b)));
+  return `<div class="panel ut-panel"><header><h2>Untouchables</h2><p>Off the table. Mock offers leave them out.</p></header><div class="body">
+    ${ids.length ? `<div class="ut-groups">${order.map((k) => `<div class="ut-group"><div class="lbl">${esc(k)}</div><div class="ut-list">${groups.get(k).map((p) => `<span class="ut-chip">${LOCK}<span>${esc(p.name)}</span><button type="button" data-unlock="${p.id}" aria-label="Take ${esc(p.name)} off the untouchables list">×</button></span>`).join('')}</div></div>`).join('')}</div>`
+      : '<p class="muted ut-empty">Nobody yet. Add the players you will not move, and the ones other managers have told you are not available.</p>'}
+    <input id="utadd" list="player-names" placeholder="Add a player…" aria-label="Add a player to the untouchables list" autocomplete="off">
+  </div></div>`;
+}
+function wireUntouchables(root) {
+  const add = root.querySelector('#utadd');
+  if (add) add.onchange = () => {
+    const p = S.players.find((x) => x.name.toLowerCase() === add.value.trim().toLowerCase());
+    if (!p) return;
+    if (S.league && p.own?.type === 'fa') { add.value = ''; add.placeholder = `${p.name} is a free agent: nobody owns him`; return; }
+    if (!isLocked(p.id)) toggleLocked(p.id); else add.value = '';
+  };
+  for (const b of root.querySelectorAll('[data-unlock]')) b.onclick = () => toggleLocked(+b.dataset.unlock);
+}
+
+// A themed pick list, used for the team pickers (the Rankings sort menu works the same way).
+// options: [[value, label]]; value null means "none". Returns the markup; wirePick adds behaviour.
+function pickMenu({ id, label, value, options, placeholder }) {
+  const cur = options.find(([v]) => v === value);
+  const caret = '<svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  return `<div class="sortmenu pick-menu">
+    <button type="button" class="pick-btn" id="${id}" aria-haspopup="listbox" aria-expanded="false" aria-label="${esc(label)}: ${esc(cur ? cur[1] : placeholder)}"><span class="${cur ? '' : 'muted'}">${esc(cur ? cur[1] : placeholder)}</span>${caret}</button>
+    <ul class="sort-list pick-list" role="listbox" aria-label="${esc(label)}" hidden>${options.map(([v, l]) => `<li role="option" tabindex="-1" data-v="${v ?? ''}" aria-selected="${v === value}">${esc(l)}</li>`).join('')}</ul>
+  </div>`;
+}
+function wirePick(id, onChoose) {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  const wrap = btn.parentElement, list = wrap.querySelector('[role=listbox]');
+  const opts = () => [...list.querySelectorAll('[role=option]')];
+  const outside = (e) => { if (!wrap.contains(e.target)) close(); };
+  const close = () => { list.hidden = true; btn.setAttribute('aria-expanded', 'false'); removeEventListener('pointerdown', outside, true); };
+  const open = () => {
+    list.hidden = false; btn.setAttribute('aria-expanded', 'true');
+    (opts().find((o) => o.getAttribute('aria-selected') === 'true') || opts()[0]).focus();
+    addEventListener('pointerdown', outside, true);
+  };
+  const choose = (o) => {
+    close();
+    if (o.getAttribute('aria-selected') === 'true') return btn.focus();
+    onChoose(o.dataset.v === '' ? null : +o.dataset.v);
+    document.getElementById(id)?.focus({ preventScroll: true });
+  };
+  btn.onclick = () => (list.hidden ? open() : close());
+  btn.onkeydown = (e) => { if (['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); open(); } };
+  list.onclick = (e) => { const o = e.target.closest('[role=option]'); if (o) choose(o); };
+  list.onkeydown = (e) => {
+    const all = opts(), i = all.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); all[Math.min(all.length - 1, i + 1)].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); all[Math.max(0, i - 1)].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); all[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); all.at(-1).focus(); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (all[i]) choose(all[i]); }
+    else if (e.key === 'Escape' || e.key === 'Tab') { close(); if (e.key === 'Escape') btn.focus(); }
+  };
+}
 function partnerOf(id) {
   const o = id != null ? byId.get(id)?.own : null;
   return o?.type === 'team' ? otherTeams().find((t) => t.name === o.team)?.id ?? null : null;
@@ -1042,10 +1128,10 @@ function renderFinder() {
   el.innerHTML = `
     <div class="finder">
       <div class="field"><label for="tq">Any NBA player</label><input id="tq" list="player-names" placeholder="Search a player to target or shop" value="${esc(subject?.name || '')}" autocomplete="off"></div>
-      ${teams.length ? `<div class="field"><label for="tteam">Or browse a roster</label><select id="tteam"><option value="">All teams</option>${teams.map((t) => `<option value="${t.id}" ${tr.team === t.id ? 'selected' : ''}>${esc(t.name)}${t.id === S.myTeam?.id ? ' (you)' : ''}</option>`).join('')}</select></div>` : ''}
+      ${teams.length ? `<div class="field"><span class="flabel" id="tteam-l">Or browse a roster</span>${pickMenu({ id: 'tteam', label: 'Browse a roster', value: tr.team ?? null, placeholder: 'All teams', options: [[null, 'All teams'], ...teams.map((t) => [t.id, `${t.name}${t.id === S.myTeam?.id ? ' (you)' : ''}`])] })}</div>` : ''}
       ${subject || team ? '<button class="btn small" id="tclear">Clear</button>' : ''}
     </div>
-    ${roster.length ? `<div class="roster-pick" role="group" aria-label="${esc(team.name)} roster">${roster.map((p) => `<button class="pchip ${tr.player === p.id ? 'on' : ''}" data-pick="${p.id}">${esc(p.name)} <span class="num">${fmt(p.model.fpg)}</span></button>`).join('')}</div>` : ''}
+    ${roster.length ? `<div class="roster-pick" role="group" aria-label="${esc(team.name)} roster">${roster.map((p) => `<button class="pchip ${tr.player === p.id ? 'on' : ''} ${isLocked(p.id) ? 'locked' : ''}" data-pick="${p.id}">${lockTag(p.id)}${esc(p.name)} <span class="num">${fmt(p.model.fpg)}</span></button>`).join('')}</div>` : ''}
     <h3 class="finder-head">${esc(heading)}${subject ? ` <span class="muted">${esc(subject.team)} · ${esc(subject.pos)} · ${fmt(subject.model.fpg)} proj FP/G · model rank ${subject.model.rank}</span>` : ''}</h3>
     ${tr.loading && !res ? `<div class="offers" aria-busy="true" aria-label="Drafting offers">${[0, 1, 2].map(() => `<div class="offer"><div class="sk-row"><div>${skLines(2, [55, 70])}</div><div>${skLines(2, [62, 48])}</div></div><div style="margin-top:18px">${skLines(3)}</div></div>`).join('')}</div>` : ''}
     ${res?.note ? `<div class="callout"><span>${esc(res.note)}</span></div>` : ''}
@@ -1053,7 +1139,7 @@ function renderFinder() {
     ${res && !res.offers.length && !res.note && !fallback ? `<div class="empty">${team && team.id === S.myTeam?.id && !subject ? 'Choose a player above to see what he could bring back.' : 'No workable offer found.'}</div>` : ''}`;
   const pick = (id, teamId = tr.team) => { tr.player = id; tr.team = teamId; tr.res = null; renderFinder(); if (!(teamId === S.myTeam?.id && !id) || !teamId) loadOffers(); else { tr.res = { offers: [] }; renderFinder(); } };
   $('#tq').onchange = (e) => { const p = S.players.find((x) => x.name.toLowerCase() === e.target.value.trim().toLowerCase()); if (p) pick(p.id, null); };
-  if ($('#tteam')) $('#tteam').onchange = (e) => pick(null, e.target.value ? +e.target.value : null);
+  wirePick('tteam', (id) => pick(null, id));
   if ($('#tclear')) $('#tclear').onclick = () => pick(null, null);
   el.onclick = (e) => {
     const chip = e.target.closest('[data-pick]');
@@ -1086,7 +1172,7 @@ function renderAnalyzer() {
   const theirs = partner ? partner.roster.map((id) => byId.get(id)).filter(Boolean).sort(byFpg) : [];
   const chip = (p, key) => {
     const on = ui[key].includes(p.id), inj = INJ[p.injuryStatus];
-    return `<button type="button" class="pchip ${on ? 'on' : ''}" data-pick-side="${key}:${p.id}" aria-pressed="${on}">${esc(p.name)} <span class="num">${fmt(p.model.fpg)}</span>${inj ? ` <span class="chip ${inj[1]}">${inj[0]}</span>` : ''}</button>`;
+    return `<button type="button" class="pchip ${on ? 'on' : ''} ${isLocked(p.id) ? 'locked' : ''}" data-pick-side="${key}:${p.id}" aria-pressed="${on}">${lockTag(p.id)}${esc(p.name)} <span class="num">${fmt(p.model.fpg)}</span>${inj ? ` <span class="chip ${inj[1]}">${inj[0]}</span>` : ''}</button>`;
   };
   // players picked that are not in the roster lists (added by search, e.g. with no league synced)
   const extra = (key, list) => ui[key].filter((id) => !list.some((p) => p.id === id)).map((id) => byId.get(id)).filter(Boolean);
@@ -1095,7 +1181,9 @@ function renderAnalyzer() {
       <div class="roster-pick">${[...extra(key, list), ...list].map((p) => chip(p, key)).join('') || `<span class="muted">${key === 'get' && teams.length ? 'Choose a team to see its roster.' : 'No players.'}</span>`}</div>
       <input list="player-names" data-add="${key}" placeholder="${key === 'get' ? 'Or search any player…' : 'Search a player…'}" aria-label="${title}: add a player by name">
     </div>`;
-  const teamSelect = teams.length ? `<select id="bteam" aria-label="Team to trade with"><option value="">Choose a team…</option>${teams.map((t) => `<option value="${t.id}" ${tr.partner === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>` : '';
+  const teamSelect = teams.length ? pickMenu({ id: 'bteam', label: 'Team to trade with', value: tr.partner ?? null, placeholder: 'Choose a team…', options: teams.map((t) => [t.id, t.name]) }) : '';
+  const lockedIn = [...ui.give, ...ui.get].filter(isLocked).map((id) => byId.get(id)).filter(Boolean);
+  const lockNote = lockedIn.length ? `<div class="callout ut-note">${LOCK}<span>${lockedIn.map((p) => esc(p.name)).join(' and ')} ${lockedIn.length > 1 ? 'are' : 'is'} on the untouchables list. The verdict still shows, but ${lockedIn.every((p) => p.own?.type === 'mine') ? 'you said you would not move them' : lockedIn.length > 1 ? 'these players are not expected to move' : 'his manager is not expected to move him'}.</span></div>` : '';
   const t = tr.custom;
   if (t) tr.open[tradeKey(t)] ||= { why: true, charts: false };
   const result = !ui.give.length || !ui.get.length
@@ -1105,14 +1193,14 @@ function renderAnalyzer() {
   el.innerHTML = `
     <div class="analyzer">${side('give', 'You give', mine)}${side('get', partner ? `You get from ${esc(partner.name)}` : 'You get', theirs, teamSelect)}</div>
     <div class="builder-bar">${ui.give.length || ui.get.length ? '<button type="button" class="btn small" id="bclear">Clear</button>' : ''}${ui.give.length && ui.get.length ? '<button type="button" class="btn small" id="bswap" title="See the same deal from the other side">Flip sides</button>' : ''}</div>
-    <div id="bresult">${result}</div>`;
+    <div id="bresult">${lockNote}${result}</div>`;
 
   const changed = () => { tr.evaluating = true; renderAnalyzer(); evalCustom(); };
-  if ($('#bteam')) $('#bteam').onchange = (e) => {
-    tr.partner = e.target.value ? +e.target.value : null;
-    ui.get = ui.get.filter((id) => partnerOf(id) === tr.partner); // a trade is with one team
+  wirePick('bteam', (id) => {
+    tr.partner = id;
+    ui.get = ui.get.filter((x) => partnerOf(x) === tr.partner); // a trade is with one team
     changed();
-  };
+  });
   for (const input of el.querySelectorAll('[data-add]')) {
     input.onchange = () => {
       const p = S.players.find((x) => x.name.toLowerCase() === input.value.trim().toLowerCase());
@@ -1482,7 +1570,7 @@ function openPlayer(id) {
       <tbody>${splits.filter(([k]) => p.s[k]).map(([k, l]) => { const x = p.s[k]; return `<tr style="cursor:default"><td class="l">${l}</td><td>${x.gp}</td><td>${fmt(x.min)}</td><td class="strong">${fmt(x.fp)}</td><td>${fmt(x.pts)}</td><td>${fmt(x.reb)}</td><td>${fmt(x.ast)}</td><td>${fmt(x.stl)}</td><td>${fmt(x.blk)}</td><td>${fmt(x.to)}</td><td>${fmt(x.fgp * 100)}</td></tr>`; }).join('')}</tbody></table></div></section>
     ${p.injury?.comment ? `<section><h3>Injury report</h3><p>${esc(p.injury.comment)}</p></section>` : ''}
     ${news.length ? `<section><h3>Recent news</h3><ul>${news.map((n) => `<li><span class="chip ${n.tone}">${esc(n.label)}</span> ${esc(n.headline || n.lines?.[0] || '')} <span class="muted">${timeAgo(n.time)}</span></li>`).join('')}</ul></section>` : ''}
-    <section><button class="btn small primary" data-mock="${p.id}">Mock offers</button> ${p.own?.type === 'mine' || !S.league ? `<button class="btn small" data-analyze="give:${p.id}">Offer him in a trade</button>` : ''} ${p.own?.type === 'team' || !S.league ? `<button class="btn small" data-analyze="get:${p.id}">Build an offer for him</button>` : ''}</section>`;
+    <section><button class="btn small primary" data-mock="${p.id}">Mock offers</button> ${p.own?.type === 'mine' || p.own?.type === 'team' || !S.league ? `<button class="btn small" data-lock="${p.id}" aria-pressed="${isLocked(p.id)}">${LOCK} ${isLocked(p.id) ? 'Untouchable: take off' : 'Mark untouchable'}</button>` : ''} ${p.own?.type === 'mine' || !S.league ? `<button class="btn small" data-analyze="give:${p.id}">Offer him in a trade</button>` : ''} ${p.own?.type === 'team' || !S.league ? `<button class="btn small" data-analyze="get:${p.id}">Build an offer for him</button>` : ''}</section>`;
   d.hidden = false; $('#scrim').hidden = false;
   if (!calm()) motion.then((m) => {
     if (!m) return;
@@ -1498,6 +1586,12 @@ document.addEventListener('click', (e) => {
     Object.assign(ui.trade, { player: +mock.dataset.mock, team: null, res: null });
     closeDrawer();
     if (location.hash === '#trades') { renderFinder(); loadOffers(); window.scrollTo(0, 0); } else location.hash = '#trades';
+    return;
+  }
+  const lk = e.target.closest('[data-lock]');
+  if (lk) {
+    const id = +lk.dataset.lock;
+    toggleLocked(id).then(() => { const b = document.querySelector(`[data-lock="${id}"]`); if (b) { b.setAttribute('aria-pressed', String(isLocked(id))); b.innerHTML = `${LOCK} ${isLocked(id) ? 'Untouchable: take off' : 'Mark untouchable'}`; } }).catch((err) => alert(err.message));
     return;
   }
   const an = e.target.closest('[data-analyze]');

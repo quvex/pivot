@@ -88,3 +88,14 @@ test('a free agent has no trade partner', () => {
   assert.equal(res.offers.length, 0);
   assert.match(res.note, /free agent/);
 });
+
+test('untouchable players never appear in offers', () => {
+  const { ctx, id } = setup();
+  const before = mockOffers(ctx, { playerId: id('Their Sleeper') });
+  const used = before.offers[0].give[0];
+  const res = mockOffers(ctx, { playerId: id('Their Sleeper'), untouchable: [used] });
+  for (const o of res.offers) assert.ok(!o.give.includes(used), 'an untouchable of mine is never offered');
+  const locked = mockOffers(ctx, { playerId: id('Their Sleeper'), untouchable: [id('Their Sleeper')] });
+  assert.equal(locked.offers.length, 0);
+  assert.match(locked.note, /untouchable/);
+});
