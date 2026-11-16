@@ -1076,3 +1076,62 @@ body[data-page="home"] .top, body[data-page="home"] .statusbar {
   color: var(--text); background: color-mix(in srgb, var(--bg) 86%, transparent); border-color: var(--line);
 }
 body[data-page="home"] .statusbar { background: var(--bg); }
+
+/* ---------- Rankings: the price board ----------
+   Flat ruled rows rather than cards. Each row reads like a quote: rank and today's move, the
+   player, market against Pivot on one shared scale, the last ten games, projection, rostered. */
+.q-board { gap: 0; border-top: 2px solid var(--text); }
+.q-board .b-item { background: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; box-shadow: none; }
+.q-board .b-item:nth-of-type(even) { background: color-mix(in srgb, var(--panel) 55%, transparent); }
+.q-board .r-row, .q-legend { display: grid; grid-template-columns: 54px minmax(0, 1.25fr) minmax(150px, 1fr) 80px 64px 52px; gap: 0 18px; align-items: center; }
+.q-board .r-row { padding: 11px 14px; text-align: left; }
+.q-board .r-row:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.q-board .r-row[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 11%, transparent); }
+.q-rank { display: flex; align-items: baseline; gap: 5px; }
+.q-board .b-rank { font: 500 17px var(--mono); font-style: normal; color: var(--text); text-align: left; letter-spacing: -.02em; }
+.q-rank small { font: 600 10px var(--mono); }
+.q-rank small.up { color: var(--up); } .q-rank small.down { color: var(--down); }
+.q-board .b-who { display: grid; gap: 2px; font-size: 15px; line-height: 1.25; }
+.q-board .b-who > b { font-weight: 600; }
+.q-board .b-who small { font: 11.5px var(--mono); color: var(--muted); }
+.q-board .b-who .b-call { justify-self: start; font: 600 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border: 1px solid currentColor; border-radius: 3px; margin-top: 1px; }
+.q-strip { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 10px; }
+.q-track { position: relative; height: 14px; }
+.q-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--line); }
+.q-track i { position: absolute; top: 50%; transform: translate(-50%, -50%); }
+.q-track .q-gap { transform: translateY(-50%); height: 3px; border-radius: 2px; background: var(--muted); }
+.q-strip.up .q-gap { background: var(--up); } .q-strip.down .q-gap { background: var(--down); }
+.q-mkt, .q-legend .q-mkt { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--text); background: var(--bg); }
+.q-fp, .q-legend .q-fp { width: 9px; height: 9px; border-radius: 50%; background: var(--text); }
+.q-strip > b { font: 500 13px var(--mono); text-align: right; }
+.q-strip.up > b { color: var(--up); } .q-strip.down > b { color: var(--down); } .q-strip.flat > b { color: var(--muted); }
+.q-spark { width: 72px; height: 22px; overflow: visible; }
+.q-spark line { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 2; }
+.q-spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+.q-spark circle { fill: var(--accent); }
+.q-num { display: grid; justify-items: end; gap: 0; }
+.q-num b { font: 500 17px var(--mono); }
+.q-num small { font: 500 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.q-legend { padding: 0 14px 6px; font: 500 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.q-legend span:nth-child(n+5) { text-align: right; }
+.q-legend i { display: inline-block; vertical-align: -1px; margin: 0 2px; position: static; transform: none; }
+.q-tier { display: flex; align-items: baseline; gap: 12px; padding: 18px 14px 6px; border-bottom: 1px solid var(--text); }
+.q-tier b { font: 400 20px var(--display); }
+.q-tier span { font: 500 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.q-board .b-detail { border-top: 1px dashed var(--line); }
+
+/* the sort menu */
+.sortmenu { position: relative; }
+.sort-btn { display: inline-flex; align-items: center; gap: 7px; }
+.sort-list { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; min-width: 190px; margin: 0; padding: 5px; list-style: none; background: var(--panel); color: var(--text); border: 1px solid var(--text); border-radius: 8px; box-shadow: 4px 4px 0 var(--text); }
+.sort-list li { padding: 7px 10px; border-radius: 5px; font-size: 13.5px; cursor: pointer; outline: none; }
+.sort-list li:hover, .sort-list li:focus { background: var(--accent-soft); }
+.sort-list li[aria-selected="true"] { font-weight: 600; color: var(--accent); }
+.sort-list li[aria-selected="true"]::after { content: " ✓"; }
+
+@media (max-width: 860px) {
+  .q-legend { display: none; }
+  .q-board .r-row { grid-template-columns: 40px minmax(0, 1fr) 58px; gap: 6px 12px; padding: 11px 10px; }
+  .q-board .r-row .q-strip { grid-column: 2 / -1; grid-row: 2; }
+  .q-board .r-row .q-spark, .q-board .r-row .q-rost { display: none; }
+}

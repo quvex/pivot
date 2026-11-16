@@ -562,7 +562,6 @@ function h2hStandings(w) {
 // scan (projection, recent form, ownership, today's change); opening it shows every source's rank,
 // the read on the player and a rating breakdown.
 const TEAM_NAMES = { ATL: 'Hawks', BOS: 'Celtics', BKN: 'Nets', CHA: 'Hornets', CHI: 'Bulls', CLE: 'Cavaliers', DAL: 'Mavericks', DEN: 'Nuggets', DET: 'Pistons', GSW: 'Warriors', HOU: 'Rockets', IND: 'Pacers', LAC: 'Clippers', LAL: 'Lakers', MEM: 'Grizzlies', MIA: 'Heat', MIL: 'Bucks', MIN: 'Timberwolves', NOP: 'Pelicans', NYK: 'Knicks', OKC: 'Thunder', ORL: 'Magic', PHI: '76ers', PHX: 'Suns', POR: 'Trail Blazers', SAC: 'Kings', SAS: 'Spurs', TOR: 'Raptors', UTA: 'Jazz', WAS: 'Wizards', FA: 'Free agent' };
-const headshot = (p) => (DEMO ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=150&h=110&cb=1`);
 
 // Ratings: Pivot's model rank stretched onto 99 down to 40, and each skill as a percentile among
 // the top 150, on the same scale. Cached per dataset.
@@ -600,26 +599,46 @@ const SORTS = {
   name: ['Name', (p) => p.name],
 };
 
+// One line of the price board. Pivot reads a player like a quote: what recent box scores say he is
+// worth (the market) against what Pivot projects, the gap between them drawn on a shared scale,
+// his last ten games as a sparkline, and how far he moved today.
+const STRIP = { lo: 10, hi: 65 };
+function gapStrip(p) {
+  const at = (v) => Math.max(0, Math.min(100, ((v - STRIP.lo) / (STRIP.hi - STRIP.lo)) * 100));
+  const mkt = p.market?.recent ?? p.model.recent, fp = p.model.fpg;
+  if (mkt == null || fp == null) return '<span class="q-strip"></span>';
+  const d = fp - mkt, cls = Math.abs(d) < 1 ? 'flat' : d > 0 ? 'up' : 'down';
+  const a = at(Math.min(mkt, fp)), b = at(Math.max(mkt, fp));
+  return `<span class="q-strip ${cls}" title="${esc(`Recent box scores say ${fmt(mkt)} FP/G; Pivot projects ${fmt(fp)}`)}">
+    <span class="q-track"><i class="q-gap" style="left:${a.toFixed(1)}%;width:${(b - a).toFixed(1)}%"></i><i class="q-mkt" style="left:${at(mkt).toFixed(1)}%"></i><i class="q-fp" style="left:${at(fp).toFixed(1)}%"></i></span>
+    <b class="num">${Math.abs(d) < 0.05 ? '0.0' : signed(d)}</b></span>`;
+}
+function spark(p) {
+  const games = (p.log || []).slice(-10);
+  if (games.length < 3) return '<span class="q-spark"></span>';
+  const W = 72, H = 22, fps = games.map((g) => g.fp), lo = Math.min(...fps, p.model.fpg) - 2, hi = Math.max(...fps, p.model.fpg) + 2;
+  const x = (i) => (i / (games.length - 1)) * W, y = (v) => H - ((v - lo) / (hi - lo)) * H;
+  return `<svg class="q-spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><line x1="0" x2="${W}" y1="${y(p.model.fpg).toFixed(1)}" y2="${y(p.model.fpg).toFixed(1)}"/><polyline points="${fps.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}"/><circle cx="${x(games.length - 1).toFixed(1)}" cy="${y(fps.at(-1)).toFixed(1)}" r="2"/></svg>`;
+}
+// tiers by projected FP/G, shown when the list is in rank order
+const TIERS = [[45, 'Franchise', '45+ FP/G'], [38, 'Cornerstones', '38 to 45'], [32, 'Starters', '32 to 38'], [27, 'Rotation', '27 to 32'], [22, 'Streamers', '22 to 27'], [-1, 'Deep bench', 'under 22']];
+const tierOf = (fp) => TIERS.findIndex(([min]) => fp >= min);
+
 function rankRow(p, n, R) {
   const r = R.of.get(p.id);
   const inj = INJ[p.injuryStatus];
   const call = p.signal ? `<span class="b-call ${p.signal.type}">${p.signal.type === 'buy' ? 'Buy low' : 'Sell high'}</span>` : '';
-  const pic = headshot(p);
   const open = ui.rank.open === p.id;
-  const dl = p.delta.fpg;
+  const mv = p.delta.rank;
   return `<li class="b-item" data-id="${p.id}" style="--i:${n % 25}">
     <button type="button" class="b-row r-row" aria-expanded="${open}" aria-controls="r-d-${p.id}">
-      <span class="b-rank">${n}.</span>
-      <span class="b-pic">${pic ? `<img src="${esc(pic)}" alt="" loading="lazy" onerror="this.remove()">` : ''}<i aria-hidden="true">${esc(p.name.split(' ').map((w) => w[0]).slice(0, 2).join(''))}</i></span>
-      <span class="b-who"><b>${esc(p.name)}</b>, ${esc(TEAM_NAMES[p.team] || p.team)}, ${esc(p.pos)}${inj ? ` <span class="chip inj ${inj[1]}">${inj[0]}</span>` : ''} ${ownChip(p.own)}${call ? `<br>${call}` : ''}</span>
-      <span class="r-nums">
-        <span><small>Proj</small><b class="num">${fmt(p.model.fpg)}</b></span>
-        <span><small>Last 15</small><b class="num">${fmt(p.s.l15?.fp)}</b></span>
-        <span><small>Season</small><b class="num">${fmt(p.s.season?.fp)}</b></span>
-        <span><small>Today</small><b class="num ${dl > 0 ? 'up' : dl < 0 ? 'down' : 'muted'}">${dl ? signed(dl) : '–'}</b></span>
-        <span><small>Rost</small><b class="num">${fmt(p.owned, 0)}%</b></span>
-      </span>
-      <span class="b-rating" title="Pivot's rating, from its rest-of-season rank (${p.model.rank})"><small>Rating</small><b>${r.full}</b></span>
+      <span class="q-rank"><span class="b-rank">${n}</span>${mv ? `<small class="${mv > 0 ? 'up' : 'down'}" title="${Math.abs(mv)} place${Math.abs(mv) === 1 ? '' : 's'} ${mv > 0 ? 'up' : 'down'} on Pivot's board today">${mv > 0 ? '▲' : '▼'}${Math.abs(mv)}</small>` : ''}</span>
+      <span class="b-who"><b>${esc(p.name)}</b>${inj ? ` <span class="chip inj ${inj[1]}">${inj[0]}</span>` : ''}${call}
+        <small>${esc(p.team)} · ${esc(p.pos)} · rated ${r.full} ${ownChip(p.own)}</small></span>
+      ${gapStrip(p)}
+      ${spark(p)}
+      <span class="q-num"><b class="num">${fmt(p.model.fpg)}</b><small>proj</small></span>
+      <span class="q-num q-rost"><b class="num">${fmt(p.owned, 0)}%</b><small>rost</small></span>
     </button>
     <div class="b-detail" id="r-d-${p.id}" ${open ? '' : 'hidden'}>${open ? rankDetail(p, n, R) : ''}</div>
   </li>`;
@@ -680,9 +699,20 @@ function renderRankings(app) {
   rows = rows.slice(0, r.limit);
   const scoring = Object.entries(S.meta.scoring).map(([k, v]) => `${S.statLabels[k] || k} ${signed(v, Number.isInteger(v) ? 0 : 1)}`).join(', ');
   const srcs = S.meta.sources.map((s) => s.full).join(', ');
-  // jump links count rows, which match ranks only when nothing is filtered out
-  const unfiltered = !q && !r.pos && r.show === 'all';
-  const jumps = unfiltered ? [[1, 25], [26, 50], [51, 75], [76, 100]].filter(([a]) => a <= rows.length) : [];
+  // Dividers: by projection the list breaks into scoring tiers; by a rank it breaks into draft
+  // rounds for a league this size. Other sorts, and a narrowed list, run without them.
+  const sortKey = r.sort || 'consensus';
+  const per = S.league?.teams?.length || 12;
+  const band = sortKey === 'fpg' ? (p) => tierOf(p.model.fpg)
+    : ['consensus', 'model'].includes(sortKey) && !q ? (p, n) => Math.floor((n - 1) / per) : null;
+  const label = (t) => (sortKey === 'fpg' ? `<b>${TIERS[t][1]}</b><span>${TIERS[t][2]}</span>` : `<b>Round ${t + 1}</b><span>${sortKey === 'model' ? "Pivot's" : 'consensus'} ranks ${t * per + 1} to ${(t + 1) * per}</span>`);
+  let lastBand = -1;
+  const items = rows.map((p) => {
+    const n = rankOf.get(p.id), t = band ? band(p, n) : -1;
+    const head = band && t !== lastBand ? `<li class="q-tier">${label(t)}</li>` : '';
+    lastBand = t;
+    return head + rankRow(p, n, R);
+  }).join('');
 
   app.innerHTML = `
     <div class="page-head"><div><h1>Rankings</h1>
@@ -691,10 +721,13 @@ function renderRankings(app) {
       <div class="b-group"><label for="q">Search</label><input type="search" id="q" placeholder="Player or team" value="${esc(r.q)}"></div>
       <div class="b-group"><span>Position</span>${['', 'PG', 'SG', 'SF', 'PF', 'C'].map((x) => `<button type="button" class="b-chip ${r.pos === x ? 'on' : ''}" data-pos="${x}">${x || 'All'}</button>`).join('')}</div>
       <div class="b-group"><span>Show</span>${[['all', 'All'], ['mine', 'My team'], ['fa', S.league ? 'Free agents' : 'Available']].map(([k, l]) => `<button type="button" class="b-chip ${r.show === k ? 'on' : ''}" data-show="${k}">${l}</button>`).join('')}</div>
-      <div class="b-group"><label for="sort">Sort by</label><select id="sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${r.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-      ${jumps.length > 1 ? `<div class="b-group"><span>Jump to</span>${jumps.map(([a, b]) => `<button type="button" class="b-chip" data-jump="${a}">${a} to ${Math.min(b, rows.length)}</button>`).join('')}</div>` : ''}
+      <div class="b-group"><span id="sort-l">Sort by</span><div class="sortmenu">
+        <button type="button" class="b-chip on sort-btn" id="sort" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="sort-l sort">${esc((SORTS[r.sort] || SORTS.consensus)[0])}<svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+        <ul class="sort-list" role="listbox" aria-labelledby="sort-l" hidden>${Object.entries(SORTS).map(([k, [l]]) => `<li role="option" tabindex="-1" data-sort="${k}" aria-selected="${(r.sort || 'consensus') === k}">${l}</li>`).join('')}</ul>
+      </div></div>
     </div>
-    <ol class="b-list">${rows.map((p) => rankRow(p, rankOf.get(p.id), R)).join('') || `<li class="empty">${r.show === 'mine' && !S.hasRoster ? 'No roster yet. Connect your league in Settings.' : 'No players match.'}</li>`}</ol>
+    <div class="q-legend" aria-hidden="true"><span>Rank</span><span>Player</span><span>Market <i class="q-mkt"></i> vs Pivot <i class="q-fp"></i></span><span>Last 10</span><span>Proj</span><span class="q-rost">Rost</span></div>
+    <ol class="b-list q-board">${items || `<li class="empty">${r.show === 'mine' && !S.hasRoster ? 'No roster yet. Connect your league in Settings.' : 'No players match.'}</li>`}</ol>
     ${total > rows.length ? `<div class="empty"><button class="btn" id="more">Show ${Math.min(100, total - rows.length)} more of ${total}</button></div>` : ''}
     <p class="chart-note" style="margin-top:14px">${S.meta.comparedTo ? `"Today" compares with the ${esc(S.meta.comparedTo)} update.` : '"Today" fills in after tomorrow\'s update.'} Replacement level: ${fmt(S.meta.repl)} FP/G. Ratings are Pivot's, from its rest-of-season rank and each skill's percentile among the top 150.</p>`;
 
@@ -708,15 +741,43 @@ function renderRankings(app) {
 
   const rerender = () => { renderRankings(app); };
   $('#q').oninput = (e) => { r.q = e.target.value; r.limit = 100; rerender(); const el = $('#q'); el.focus(); el.setSelectionRange(r.q.length, r.q.length); };
-  $('#sort').onchange = (e) => { r.sort = e.target.value; rerender(); };
+  // the sort menu: a themed list box. Choosing a sort redraws and brings the filter bar back to
+  // the top of the list.
+  const btn = $('#sort'), list = app.querySelector('.sort-list');
+  const opts = () => [...list.querySelectorAll('[role=option]')];
+  const close = () => { list.hidden = true; btn.setAttribute('aria-expanded', 'false'); removeEventListener('pointerdown', outside, true); };
+  const outside = (e) => { if (!e.target.closest('.sortmenu')) close(); };
+  const openMenu = () => {
+    list.hidden = false; btn.setAttribute('aria-expanded', 'true');
+    (opts().find((o) => o.getAttribute('aria-selected') === 'true') || opts()[0]).focus();
+    addEventListener('pointerdown', outside, true);
+  };
+  const choose = (k) => {
+    close();
+    if (k === (r.sort || 'consensus')) return btn.focus();
+    r.sort = k; rerender();
+    const bar = $('.b-bar'), top = $('.b-list').getBoundingClientRect().top + scrollY - bar.offsetHeight - 58 - 30;
+    if (scrollY > top) scrollTo({ top: Math.max(0, top), behavior: calm() ? 'auto' : 'smooth' });
+    $('#sort')?.focus({ preventScroll: true });
+  };
+  btn.onclick = () => (list.hidden ? openMenu() : close());
+  btn.onkeydown = (e) => { if (['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); openMenu(); } };
+  list.onclick = (e) => { const o = e.target.closest('[data-sort]'); if (o) choose(o.dataset.sort); };
+  list.onkeydown = (e) => {
+    const all = opts(), i = all.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); all[Math.min(all.length - 1, i + 1)].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); all[Math.max(0, i - 1)].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); all[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); all.at(-1).focus(); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(all[i].dataset.sort); }
+    else if (e.key === 'Escape' || e.key === 'Tab') { close(); if (e.key === 'Escape') btn.focus(); }
+  };
   if ($('#more')) $('#more').onclick = () => { r.limit += 100; rerender(); };
   app.onclick = (e) => {
     const pos = e.target.closest('[data-pos]');
     if (pos) { r.pos = pos.dataset.pos; return rerender(); }
     const show = e.target.closest('[data-show]');
     if (show) { r.show = show.dataset.show; return rerender(); }
-    const jump = e.target.closest('[data-jump]');
-    if (jump) { app.querySelectorAll('.b-item')[+jump.dataset.jump - 1]?.scrollIntoView({ behavior: calm() ? 'auto' : 'smooth', block: 'center' }); return; }
     const row = e.target.closest('.r-row');
     if (!row) return;
     const li = row.closest('.b-item');
@@ -728,7 +789,7 @@ function renderRankings(app) {
     r.open = opening ? id : null;
     row.setAttribute('aria-expanded', String(opening));
     if (!opening) { detail.hidden = true; detail.innerHTML = ''; return; }
-    detail.innerHTML = rankDetail(byId.get(id), Number(row.querySelector('.b-rank').textContent.replace('.', '')), R);
+    detail.innerHTML = rankDetail(byId.get(id), Number(row.querySelector('.b-rank').textContent), R);
     detail.hidden = false;
     motion.then((m) => {
       if (!m || calm()) return;
