@@ -1069,10 +1069,6 @@ table.acc.news td:last-child { white-space: normal; min-width: 76px; }
 .intro .g-top { top: clamp(18px, 4vh, 40px); } .intro .g-bottom { bottom: clamp(18px, 4vh, 40px); }
 @media (max-width: 760px) { .intro .g-kicker { font-size: 9.5px; letter-spacing: .14em; } }
 
-/* the seal the entrance leaves behind: a small rosette turning slowly beside the headline */
-.court-seal { position: absolute; z-index: 1; top: clamp(70px, 10vh, 110px); right: clamp(120px, 14vw, 240px); width: clamp(220px, 24vw, 360px); height: auto; aspect-ratio: 1; overflow: visible; pointer-events: none; opacity: .5; transition: opacity .6s ease; }
-.stage:not([data-ch="court"]) .court-seal, .stage.cine .court-seal { opacity: 0; }
-@media (max-width: 1000px) { .court-seal { display: none; } }
 
 /* on the home page the bars above and below the plate are purple too, so the title screen is one piece */
 body[data-page="home"] .top, body[data-page="home"] .statusbar {
@@ -1080,4 +1076,3 @@ body[data-page="home"] .top, body[data-page="home"] .statusbar {
   color: var(--text); background: color-mix(in srgb, var(--bg) 86%, transparent); border-color: var(--line);
 }
 body[data-page="home"] .statusbar { background: var(--bg); }
-.court-seal { top: clamp(64px, 8vh, 90px); right: clamp(110px, 12vw, 200px); width: clamp(200px, 20vw, 290px); opacity: .42; }

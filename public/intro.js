@@ -57,17 +57,6 @@ function rosette(svg, key, words) {
   return { bands, micro };
 }
 
-// ---------- the seal: a small rosette that stays on the title screen, turning slowly ----------
-export function mountSeal(svg, words) {
-  if (!svg || svg.childElementCount) return () => {};
-  const { bands, micro } = rosette(svg, 'seal', words);
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return () => {};
-  // neighbouring bands turn against each other, so the weave shimmers like a moire
-  const spins = bands.map((b, i) => gsap.to(b, { rotation: i % 2 ? -360 : 360, duration: 140 + i * 50, ease: 'none', repeat: -1, svgOrigin: '0 0' }));
-  spins.push(gsap.to(micro, { rotation: -360, duration: 200, ease: 'none', repeat: -1, svgOrigin: '0 0' }));
-  return () => spins.forEach((s) => s.kill());
-}
-
 // ---------- the entrance ----------
 // host: an empty fixed element already covering the page. Resolves when the court is revealed.
 export function playIntro(host, { words, serial, onReveal } = {}) {

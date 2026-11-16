@@ -311,7 +311,6 @@ function renderHome(app) {
           <button type="button" data-view="under">Buy low</button>
           <button type="button" data-view="over">Sell high</button>
         </nav>
-        <svg class="court-seal" id="court-seal" aria-hidden="true"></svg>
         <div class="scroll-cue" aria-hidden="true"><span>Scroll</span><i></i></div>
         <aside class="jumbotron" id="court-panel" aria-live="polite">
           <div id="panel-day">
@@ -346,7 +345,7 @@ function renderHome(app) {
   // itself in until the entrance hands over.
   let seenIntro = false;
   try { seenIntro = sessionStorage.getItem('pivot-intro') === '1'; } catch { /* storage blocked: play it */ }
-  let revealed = calm() || seenIntro, onReveal = () => {}, stopSeal = () => {};
+  let revealed = calm() || seenIntro, onReveal = () => {};
   const words = 'Where the market is wrong';
   const intro = import('./intro.js');
   if (!revealed) {
@@ -358,7 +357,6 @@ function renderHome(app) {
     const serial = `No. ${String(S.meta?.day || '').replace(/-/g, '')} \u00b7 ${S.players.length} players priced`;
     intro.then((m) => m.playIntro(host, { words, serial, onReveal: done })).catch(() => { host.remove(); done(); });
   }
-  intro.then((m) => { if (stage.isConnected) stopSeal = m.mountSeal($('#court-seal'), words); }).catch(() => {});
   const panelDay = $('#panel-day'), panelPlayer = $('#panel-player');
   const showPlayer = (pl) => {
     stage.classList.toggle('has-player', Boolean(pl));
@@ -396,7 +394,7 @@ function renderHome(app) {
       onProgress: (p) => stage.style.setProperty('--p', p.toFixed(4)),
       onCine: (on) => stage.classList.toggle('cine', on),
     });
-    unmountStage = () => { clearTimeout(facesTimer); stopSeal(); ctl.destroy(); };
+    unmountStage = () => { clearTimeout(facesTimer); ctl.destroy(); };
     if (revealed) ctl.draw(); else onReveal = () => ctl.draw();
     seg.forEach((b) => { b.onclick = () => ctl.view(b.dataset.view); });
     // offer to make the missing faces; then check back until they are all on the court
