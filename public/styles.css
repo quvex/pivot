@@ -1038,3 +1038,46 @@ table.acc.news td:last-child { white-space: normal; min-width: 76px; }
 .pt-side td.l .ci { display: block; }
 .pt-side tr.pt-total td { border-top: 1px solid var(--text); border-bottom: 0; font-weight: 600; }
 @media (max-width: 760px) { .pt-card > header h2 { font-size: 22px; } .tchart .tend { font-size: 11px; } }
+
+/* ---------- the title screen is a deep purple plate ----------
+   The court section carries its own colours: light ink on purple, like a scratchboard. Everything
+   inside it (copy, name tags, the day card, the rail) picks them up through the same tokens. */
+.stage.court {
+  --bg: #1a1344; --panel: #251c5e; --panel-2: #2d2372; --line: #40358c; --text: #f1eadc; --muted: #b6acdf;
+  --accent: #b9a8ff; --accent-soft: #33287c; --on-accent: #1a1344; --ink: #c8bbff;
+  --up: #cdc0ff; --down: #ffa276;
+  color: var(--text); background: var(--bg);
+}
+.stage.court .stage-pin::before, .stage.court .stage-pin::after { background: #0c0822; }
+.stage.court .jumbotron { background: color-mix(in srgb, var(--panel) 90%, transparent); backdrop-filter: blur(6px); }
+.stage.court .court-rail button { background: linear-gradient(90deg, transparent, var(--bg) 30%); }
+.stage.court .btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.stage.court .btn { color: var(--text); border-color: var(--line); background: transparent; }
+
+/* ---------- the entrance: a guilloche rosette, as engraved on banknotes ---------- */
+.intro { position: fixed; inset: 0; z-index: 200; background: rgb(20, 14, 56); color: #f1eadc; overflow: hidden; display: grid; place-items: center; cursor: pointer; }
+.intro .g-rosette { position: absolute; left: 50%; top: 50%; width: min(128vh, 128vw); height: min(128vh, 128vw); translate: -50% -50%; overflow: visible; will-change: transform; }
+.g-band path { fill: none; stroke: #b9a8ff; stroke-width: .7; vector-effect: non-scaling-stroke; }
+.g-band:nth-of-type(odd) path { stroke: #8f7cf0; }
+.g-micro { font-family: var(--mono); letter-spacing: .32em; text-transform: uppercase; fill: #cdc0ff; }
+.intro .g-word { position: relative; margin: 0; display: flex; font: italic 400 clamp(96px, 24vw, 340px)/.9 var(--display); letter-spacing: -.03em; padding: .08em .12em .16em; }
+.intro .g-word span { display: block; overflow: hidden; padding: .06em .02em .2em; margin: -.06em -.02em -.2em; }
+.intro .g-word i { display: block; font-style: inherit; will-change: transform; }
+.intro .g-tag { position: absolute; left: 0; right: 0; top: calc(50% + clamp(60px, 13vw, 190px)); margin: 0; text-align: center; font: 400 clamp(15px, 1.7vw, 24px) var(--display); letter-spacing: .01em; }
+.intro .g-tag em { font-style: italic; color: #cdc0ff; }
+.intro .g-kicker { position: absolute; left: clamp(18px, 4vw, 56px); right: clamp(18px, 4vw, 56px); margin: 0; display: flex; justify-content: space-between; gap: 16px; font: 500 11px var(--mono); letter-spacing: .2em; text-transform: uppercase; color: #b6acdf; }
+.intro .g-top { top: clamp(18px, 4vh, 40px); } .intro .g-bottom { bottom: clamp(18px, 4vh, 40px); }
+@media (max-width: 760px) { .intro .g-kicker { font-size: 9.5px; letter-spacing: .14em; } }
+
+/* the seal the entrance leaves behind: a small rosette turning slowly beside the headline */
+.court-seal { position: absolute; z-index: 1; top: clamp(70px, 10vh, 110px); right: clamp(120px, 14vw, 240px); width: clamp(220px, 24vw, 360px); height: auto; aspect-ratio: 1; overflow: visible; pointer-events: none; opacity: .5; transition: opacity .6s ease; }
+.stage:not([data-ch="court"]) .court-seal, .stage.cine .court-seal { opacity: 0; }
+@media (max-width: 1000px) { .court-seal { display: none; } }
+
+/* on the home page the bars above and below the plate are purple too, so the title screen is one piece */
+body[data-page="home"] .top, body[data-page="home"] .statusbar {
+  --bg: #1a1344; --panel: #251c5e; --panel-2: #2d2372; --line: #40358c; --text: #f1eadc; --muted: #b6acdf; --accent: #b9a8ff; --on-accent: #1a1344;
+  color: var(--text); background: color-mix(in srgb, var(--bg) 86%, transparent); border-color: var(--line);
+}
+body[data-page="home"] .statusbar { background: var(--bg); }
+.court-seal { top: clamp(64px, 8vh, 90px); right: clamp(110px, 12vw, 200px); width: clamp(200px, 20vw, 290px); opacity: .42; }

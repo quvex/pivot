@@ -16,6 +16,7 @@ gsap.registerPlugin(ScrollTrigger);
 const COURT = { L: 28.65, W: 15.24 };
 const HOOP_X = COURT.L / 2 - 1.575;
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const cssOf = (el, name) => getComputedStyle(el).getPropertyValue(name).trim();
 const grey = (v) => new THREE.Color(v, v, v);
 const rgb = (hex) => new THREE.Vector3(parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255);
 
@@ -771,8 +772,11 @@ async function attachFace(f, url, GLTFLoader) {
   bust.position.sub(top);
   const holder = new THREE.Group();
   holder.add(bust);
-  // a touch over the span: the bust's neck tucks into the collar
-  holder.scale.setScalar((span * 1.14) / (kept.max.y - base));
+  // Sized to a real head: crown to the base of the neck, but never wider than a head is, so a
+  // big haircut in the photo cannot turn him into a bobblehead.
+  const byHeight = (span * 1.02) / (kept.max.y - base);
+  const wide = (0.215 * (f.metres / 1.98)) / Math.max(1e-6, kept.max.x - kept.min.x);
+  holder.scale.setScalar(Math.min(byHeight, wide));
   // turn it to face his way, then tip it to the lean of his neck
   holder.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up).multiply(f.root.getWorldQuaternion(new THREE.Quaternion()));
   holder.position.copy(crown);
@@ -807,7 +811,7 @@ const VIEWS = {
 };
 
 // teams: { under: [player], over: [player] }, each player { id, name, fpg, gap, slot, jersey, height, weight }
-export function mountStage({ canvas, labels, section, teams, onSelect, onView, onProgress, onCine, avoid, faces }) {
+export function mountStage({ canvas, labels, section, teams, onSelect, onView, onProgress, onCine, avoid, faces, holdDraw = false }) {
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const small = innerWidth < 760;
   let renderer;
@@ -947,14 +951,17 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, o
       tColor: { value: rt.texture }, tDepth: { value: rt.depthTexture },
       uRes: { value: new THREE.Vector2(1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far },
       uDraw: { value: still ? 2 : 0 }, uScale: { value: dpr },
-      uInk: { value: rgb(css('--accent') || '#3a2f86') }, uPaper: { value: rgb(css('--bg') || '#efe8da') },
+      // the stage sets its own colours (a deep purple plate), so read them from the section
+      uInk: { value: rgb(cssOf(section, '--ink') || css('--accent') || '#3a2f86') }, uPaper: { value: rgb(cssOf(section, '--bg') || '#efe8da') },
     },
     depthTest: false, depthWrite: false,
   });
   const postScene = new THREE.Scene();
   postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), engrave));
   const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  if (!still) gsap.to(engrave.uniforms.uDraw, { value: 1.35, duration: 2.2, ease: 'power2.inOut', delay: 0.15 });
+  // the drawing inks itself in: at once, or when the entrance hands over (holdDraw)
+  const inkIn = () => { if (!still) gsap.to(engrave.uniforms.uDraw, { value: 1.35, duration: 2.2, ease: 'power2.inOut', delay: 0.15, overwrite: true }); };
+  if (!holdDraw) inkIn();
 
   // ---------- camera state ----------
   // `cam` is where the walk (or a button) puts the camera; `user` is the turn you add by dragging.
@@ -1279,6 +1286,7 @@ export function mountStage({ canvas, labels, section, teams, onSelect, onView, o
 
   return {
     view: (name) => { if (VIEWS[name]) apply(name); },
+    draw: inkIn,
     select: (id) => { const f = figures.find((x) => x.pl.id === id); if (f !== selected) select(f || selected); },
     // a face that has just been made: set it on its player
     showFaces: () => { for (const f of figures) putFace(f); },

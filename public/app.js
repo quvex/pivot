@@ -311,6 +311,7 @@ function renderHome(app) {
           <button type="button" data-view="under">Buy low</button>
           <button type="button" data-view="over">Sell high</button>
         </nav>
+        <svg class="court-seal" id="court-seal" aria-hidden="true"></svg>
         <div class="scroll-cue" aria-hidden="true"><span>Scroll</span><i></i></div>
         <aside class="jumbotron" id="court-panel" aria-live="polite">
           <div id="panel-day">
@@ -340,6 +341,24 @@ function renderHome(app) {
   const stage = $('#stage');
   unmountStage?.();
   unmountStage = null;
+  // The entrance plays once per visit: a banknote-style rosette engraves itself around the
+  // wordmark, then the view flies through it onto the court (intro.js). The court waits to ink
+  // itself in until the entrance hands over.
+  let seenIntro = false;
+  try { seenIntro = sessionStorage.getItem('pivot-intro') === '1'; } catch { /* storage blocked: play it */ }
+  let revealed = calm() || seenIntro, onReveal = () => {}, stopSeal = () => {};
+  const words = 'Where the market is wrong';
+  const intro = import('./intro.js');
+  if (!revealed) {
+    const host = document.createElement('div');
+    host.className = 'intro';
+    document.body.append(host);
+    try { sessionStorage.setItem('pivot-intro', '1'); } catch { /* fine */ }
+    const done = () => { revealed = true; onReveal(); };
+    const serial = `No. ${String(S.meta?.day || '').replace(/-/g, '')} \u00b7 ${S.players.length} players priced`;
+    intro.then((m) => m.playIntro(host, { words, serial, onReveal: done })).catch(() => { host.remove(); done(); });
+  }
+  intro.then((m) => { if (stage.isConnected) stopSeal = m.mountSeal($('#court-seal'), words); }).catch(() => {});
   const panelDay = $('#panel-day'), panelPlayer = $('#panel-player');
   const showPlayer = (pl) => {
     stage.classList.toggle('has-player', Boolean(pl));
@@ -369,7 +388,7 @@ function renderHome(app) {
     const ready = new Set(heads?.ready || []);
     const faces = heads ? { has: (id) => ready.has(id), url: (id) => `/heads/${id}.glb` } : null;
     const ctl = mountStage({
-      faces,
+      faces, holdDraw: !revealed,
       canvas: $('#court'), labels: $('#col-labels'), section: stage, teams,
       avoid: () => [stage.querySelector('.chapter[data-ch="' + stage.dataset.ch + '"]'), stage.querySelector('.court-rail'), stage.classList.contains('has-player') || stage.dataset.ch === 'court' ? $('#court-panel') : null].filter(Boolean).map((el) => el.getBoundingClientRect()),
       onSelect: showPlayer,
@@ -377,12 +396,13 @@ function renderHome(app) {
       onProgress: (p) => stage.style.setProperty('--p', p.toFixed(4)),
       onCine: (on) => stage.classList.toggle('cine', on),
     });
-    unmountStage = () => { clearTimeout(facesTimer); ctl.destroy(); };
+    unmountStage = () => { clearTimeout(facesTimer); stopSeal(); ctl.destroy(); };
+    if (revealed) ctl.draw(); else onReveal = () => ctl.draw();
     seg.forEach((b) => { b.onclick = () => ctl.view(b.dataset.view); });
     // offer to make the missing faces; then check back until they are all on the court
     const courtIds = [...teams.under, ...teams.over].filter(Boolean).map((p) => p.id);
     const facesEl = $('#court-faces');
-    let facesTimer = 0;
+    let facesTimer = 0, facesAsked = false;
     const showFaces = (st) => {
       if (!st || !facesEl) return;
       for (const id of st.ready || []) ready.add(id);
@@ -395,6 +415,11 @@ function renderHome(app) {
       if (busy.length) {
         facesEl.textContent = `Making faces: ${courtIds.length - missing.length} of ${courtIds.length} done`;
         facesTimer = setTimeout(() => fetch('/api/heads').then((r) => r.json()).then(showFaces).catch(() => {}), 8000);
+      } else if (missing.length && !failed.length && !facesAsked) {
+        // new players on the court get their faces made without being asked, once per visit
+        facesAsked = true;
+        facesEl.textContent = `Making faces for ${missing.length} new player${missing.length === 1 ? '' : 's'}`;
+        api('/api/heads', { ids: missing }).then(showFaces).catch((e) => { facesEl.textContent = e.message; });
       } else if (missing.length) {
         facesEl.innerHTML = `<button type="button" class="btn link">Make 3D faces for ${missing.length} player${missing.length === 1 ? '' : 's'}</button> <span>free, made and kept on this computer${failed.length ? `. ${failed.length} failed: ${esc(failed[0].error)}` : ''}</span>`;
         facesEl.querySelector('button').onclick = () => api('/api/heads', { ids: missing }).then(showFaces).catch((e) => { facesEl.textContent = e.message; });
