@@ -340,13 +340,12 @@ function renderHome(app) {
   const stage = $('#stage');
   unmountStage?.();
   unmountStage = null;
-  // The entrance plays once per visit: a banknote-style rosette engraves itself around the
-  // wordmark, then the view flies through it onto the court (intro.js). The court waits to ink
+  // The entrance plays once per visit: a flower blooms in ASCII around the wordmark, then the view
+  // falls into its centre and onto the court (intro.js). The court waits to ink
   // itself in until the entrance hands over.
   let seenIntro = false;
   try { seenIntro = sessionStorage.getItem('pivot-intro') === '1'; } catch { /* storage blocked: play it */ }
   let revealed = calm() || seenIntro, onReveal = () => {};
-  const words = 'Where the market is wrong';
   const intro = import('./intro.js');
   if (!revealed) {
     const host = document.createElement('div');
@@ -355,7 +354,7 @@ function renderHome(app) {
     try { sessionStorage.setItem('pivot-intro', '1'); } catch { /* fine */ }
     const done = () => { revealed = true; onReveal(); };
     const serial = `No. ${String(S.meta?.day || '').replace(/-/g, '')} \u00b7 ${S.players.length} players priced`;
-    intro.then((m) => m.playIntro(host, { words, serial, onReveal: done })).catch(() => { host.remove(); done(); });
+    intro.then((m) => m.playIntro(host, { serial, onReveal: done })).catch(() => { host.remove(); done(); });
   }
   const panelDay = $('#panel-day'), panelPlayer = $('#panel-player');
   const showPlayer = (pl) => {

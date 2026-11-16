@@ -1,105 +1,136 @@
-// The entrance, and the seal it leaves behind.
+// The entrance: a flower that blooms in ASCII.
 //
-// Guilloche is the woven rosette linework engraved on banknotes and share certificates: a few
-// sine-modulated circles, phase-shifted against each other until they interlace. It was made to be
-// hard to copy and it is rarely seen on screens. Here it is drawn live: each band is a family of
-// curves r(t) = R + A cos(n t + phase), one curve per phase, so the family weaves into a braid.
-// The entrance draws three bands and a centre rose line by line, sets the wordmark in the middle,
-// then flies through the centre of the rosette onto the court.
+// The screen is a grid of monospace cells. Each frame, every cell asks how far inside the flower
+// it is: three rings of petals (rose curves turned against each other), a seeded centre, and a
+// soft falloff at each petal's edge, with a vein down its middle. That depth picks a character from
+// light to dense ( .:-=+*#%@ ), so the flower is drawn in type. A blurred copy of the same canvas
+// sits behind it as a glow. The petals open ring by ring around the wordmark, then the view falls
+// into the centre of the flower and out onto the court.
 import { gsap } from 'https://cdn.jsdelivr.net/npm/gsap@3.12.5/+esm';
 
-const NS = 'http://www.w3.org/2000/svg';
-const el = (name, attrs = {}) => { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
-
-// one braided band: `curves` closed curves around radius R, each with n lobes of depth A
-function band({ R, A, n, curves, twist = 0, steps = 720 }) {
-  const g = el('g', { class: 'g-band' });
-  for (let j = 0; j < curves; j++) {
-    const phase = (j / curves) * Math.PI * 2;
-    let d = '';
-    for (let i = 0; i <= steps; i++) {
-      const t = (i / steps) * Math.PI * 2;
-      // a second, slower wave leans the lobes so neighbouring curves cross instead of nesting
-      const r = R + A * Math.cos(n * t + phase) + twist * A * Math.sin((n / 2) * t - phase);
-      d += `${i ? 'L' : 'M'}${(r * Math.cos(t)).toFixed(1)} ${(r * Math.sin(t)).toFixed(1)}`;
-    }
-    g.append(el('path', { d: `${d}Z`, pathLength: 1 }));
-  }
-  return g;
-}
-
-// a line of small capitals set round a circle, as on a coin or a banknote border
-function ring(svg, id, radius, text, size) {
-  const defs = svg.querySelector('defs') || svg.insertBefore(el('defs'), svg.firstChild);
-  defs.append(el('path', { id, d: `M0 ${-radius}A${radius} ${radius} 0 1 1 -0.01 ${-radius}` }));
-  const t = el('text', { class: 'g-micro', 'font-size': size });
-  const tp = el('textPath', { href: `#${id}`, startOffset: '0' });
-  const once = `${text} · `;
-  tp.textContent = once.repeat(Math.max(1, Math.floor((2 * Math.PI * radius) / (once.length * size * 0.72))));
-  t.append(tp);
-  const g = el('g', { class: 'g-ring' });
-  g.append(t);
-  return g;
-}
-
-const BANDS = [
-  { R: 430, A: 26, n: 36, curves: 6, twist: 0.5 },   // outer lace
-  { R: 318, A: 62, n: 14, curves: 12, twist: 0.35 }, // the main braid
-  { R: 176, A: 44, n: 9, curves: 10, twist: 0.6 },
-  { R: 70, A: 40, n: 5, curves: 8, twist: 0 },       // centre rose
+const RAMP = ' .:-=+*#%@';
+// three rings of petals, outermost first: count, length (share of the radius), width, turn
+const RINGS = [
+  { n: 8, len: 1, width: 0.86, turn: 0, open: [0.2, 1.35] },
+  { n: 8, len: 0.7, width: 0.84, turn: Math.PI / 8, open: [0.1, 1.15] },
+  { n: 6, len: 0.42, width: 0.9, turn: 0.2, open: [0, 0.95] },
 ];
+const INK = ['#7d68e8', '#a996ff', '#d9cfff', '#f6e7c8']; // outer ring to centre, then the heart, on deep purple
 
-function rosette(svg, key, words) {
-  svg.setAttribute('viewBox', '-500 -500 1000 1000');
-  const bands = BANDS.map((b) => band(b));
-  const micro = ring(svg, `g-ring-${key}`, 378, words, 11);
-  svg.append(bands[0], micro, bands[1], bands[2], bands[3]);
-  return { bands, micro };
+function flower(canvas, glow) {
+  const ctx = canvas.getContext('2d'), gctx = glow.getContext('2d');
+  let W = 0, H = 0, cw = 0, ch = 0, cols = 0, rows = 0, dpr = 1;
+  const size = () => {
+    dpr = Math.min(2, devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    for (const c of [canvas, glow]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); c.style.width = `${W}px`; c.style.height = `${H}px`; }
+    cw = W < 700 ? 8 : 10; ch = cw * 1.7;
+    cols = Math.ceil(W / cw); rows = Math.ceil(H / ch);
+  };
+  size();
+  addEventListener('resize', size);
+  const state = { bloom: 0, spin: 0, zoom: 1, fade: 1 };
+
+  // how far inside the flower a point is (0 outside, about 1 at the heart), and which ring it is in
+  const field = (x, y, R, t) => {
+    const r = Math.hypot(x, y) / R, a = Math.atan2(y, x);
+    let best = 0, ring = -1;
+    RINGS.forEach((g, i) => {
+      const open = Math.max(0, Math.min(1, (state.bloom - g.open[0]) / (g.open[1] - g.open[0])));
+      if (!open) return;
+      const ease = 1 - (1 - open) ** 3;
+      const len = g.len * ease;
+      // angle to the nearest petal's axis, as a fraction of the gap between petals
+      const step = (Math.PI * 2) / g.n, phase = a - g.turn - state.spin * (i % 2 ? -1 : 1) * (1 + i * 0.4);
+      const d = Math.abs(((phase % step) + step * 1.5) % step - step / 2) / (step / 2);
+      // a rounded petal: widest about two thirds out, closing to a blunt tip
+      const along = r / Math.max(1e-3, len);
+      if (along > 1) return;
+      const profile = Math.sqrt(Math.max(0, Math.sin(along * Math.PI * 0.82))) * (1 - along ** 6 * 0.4) * g.width;
+      const inside = 1 - d / Math.max(1e-3, profile);
+      if (inside <= 0) return;
+      // dense down the vein and toward the base, thinning to light characters at the edges
+      const vein = Math.exp(-((d / Math.max(1e-3, profile)) ** 2) * 30) * 0.3;
+      const v = Math.min(1, inside ** 1.1 * (0.5 + 0.5 * (1 - along)) + vein + 0.04 * Math.sin(t * 2.5 + r * 11 + i));
+      // inner rings lie on top of the outer ones, as real petals do
+      if (v > 0.06 && i >= ring) { best = v; ring = i; }
+    });
+    // the seeded centre
+    const heart = Math.max(0, 1 - r / (0.14 * Math.min(1, state.bloom * 2)));
+    if (heart > 0) { const seeds = 0.5 + 0.5 * Math.sin(a * 13 + r * 40); best = Math.min(1, heart * 0.7 + seeds * 0.4); ring = 3; }
+    return [best, ring];
+  };
+
+  const draw = (t) => {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = `600 ${cw * 1.15}px ui-monospace, "SF Mono", Menlo, monospace`;
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    const R = Math.min(W, H) * 0.46 * state.zoom, cx = W / 2, cy = H / 2;
+    for (let ring = 0; ring < 4; ring++) {
+      ctx.fillStyle = INK[ring];
+      ctx.globalAlpha = state.fade;
+      for (let j = 0; j < rows; j++) {
+        const y = j * ch + ch / 2 - cy;
+        if (Math.abs(y) > R * 1.05) continue;
+        for (let i = 0; i < cols; i++) {
+          const x = i * cw + cw / 2 - cx;
+          if (Math.abs(x) > R * 1.05) continue;
+          const [v, r] = field(x, y, R, t);
+          if (r !== ring || v < 0.06) continue;
+          ctx.fillText(RAMP[Math.min(RAMP.length - 1, Math.round(v * (RAMP.length - 1)))], cx + x, cy + y);
+        }
+      }
+    }
+    // the glow is the same drawing, smaller and blurred (CSS does the blur)
+    gctx.setTransform(1, 0, 0, 1, 0, 0);
+    gctx.clearRect(0, 0, glow.width, glow.height);
+    gctx.drawImage(canvas, 0, 0, glow.width, glow.height);
+  };
+  let raf = 0;
+  const t0 = performance.now();
+  const loop = (now) => { draw((now - t0) / 1000); raf = requestAnimationFrame(loop); };
+  raf = requestAnimationFrame(loop);
+  return { state, stop: () => { cancelAnimationFrame(raf); removeEventListener('resize', size); } };
 }
 
-// ---------- the entrance ----------
-// host: an empty fixed element already covering the page. Resolves when the court is revealed.
-export function playIntro(host, { words, serial, onReveal } = {}) {
+// host: an empty fixed element covering the page. Resolves when the court is revealed.
+export function playIntro(host, { serial, onReveal } = {}) {
   host.innerHTML = `
-    <svg class="g-rosette" aria-hidden="true"></svg>
+    <canvas class="g-glow" aria-hidden="true"></canvas>
+    <canvas class="g-ascii" aria-hidden="true"></canvas>
     <p class="g-kicker g-top"><span>Fantasy basketball</span><span>Priced daily</span></p>
     <h1 class="g-word" aria-label="Pivot">${[...'Pivot'].map((c) => `<span><i>${c}</i></span>`).join('')}</h1>
     <p class="g-tag"><span>Where the market is <em>wrong</em></span></p>
     <p class="g-kicker g-bottom"><span>${serial || ''}</span><span>Click to enter</span></p>`;
-  const svg = host.querySelector('svg');
-  const { bands, micro } = rosette(svg, 'intro', words || 'Where the market is wrong');
-  const paths = bands.map((b) => [...b.querySelectorAll('path')]);
+  const art = flower(host.querySelector('.g-ascii'), host.querySelector('.g-glow'));
   const letters = host.querySelectorAll('.g-word i');
 
   return new Promise((resolve) => {
     let leaving = false;
-    gsap.set(paths.flat(), { strokeDasharray: 1, strokeDashoffset: 1 });
     gsap.set(letters, { yPercent: 115 });
-    gsap.set([micro, host.querySelectorAll('.g-kicker span'), host.querySelector('.g-tag span')], { opacity: 0 });
-    const spins = bands.map((b, i) => gsap.to(b, { rotation: i % 2 ? -50 : 50, duration: 6, ease: 'none', svgOrigin: '0 0' }));
+    gsap.set([host.querySelectorAll('.g-kicker span'), host.querySelector('.g-tag span')], { opacity: 0 });
+    const spin = gsap.to(art.state, { spin: 0.6, duration: 8, ease: 'none' });
+    const show = gsap.timeline()
+      .to(art.state, { bloom: 1.4, duration: 2.4, ease: 'power2.out' }, 0)
+      .to(letters, { yPercent: 0, duration: 0.9, ease: 'expo.out', stagger: 0.07 }, 0.9)
+      .to(host.querySelector('.g-tag span'), { opacity: 1, duration: 0.6 }, 1.5)
+      .to(host.querySelectorAll('.g-kicker span'), { opacity: 1, duration: 0.5, stagger: 0.08 }, 1.3)
+      .add(leave, '+=0.7');
 
-    const draw = gsap.timeline();
-    // the bands engrave from the centre outward, each curve a beat behind the last
-    [3, 2, 1, 0].forEach((b, order) => draw.to(paths[b], { strokeDashoffset: 0, duration: 1.15, ease: 'power2.inOut', stagger: 0.035 }, order * 0.16));
-    draw.to(micro, { opacity: 1, duration: 0.6 }, 0.7)
-      .to(letters, { yPercent: 0, duration: 0.9, ease: 'expo.out', stagger: 0.07 }, 0.45)
-      .to(host.querySelector('.g-tag span'), { opacity: 1, duration: 0.6 }, 1.1)
-      .to(host.querySelectorAll('.g-kicker span'), { opacity: 1, duration: 0.5, stagger: 0.08 }, 1.0)
-      .add(leave, '+=0.75');
-
-    // through the eye of the rosette and out onto the court
+    // into the heart of the flower and out onto the court
     function leave() {
       if (leaving) return;
       leaving = true;
-      draw.kill();
+      show.kill();
       removeEventListener('keydown', leave); removeEventListener('wheel', leave); host.removeEventListener('pointerdown', leave);
       onReveal?.();
-      gsap.timeline({ onComplete: () => { spins.forEach((s) => s.kill()); host.remove(); resolve(); } })
+      gsap.timeline({ onComplete: () => { spin.kill(); art.stop(); host.remove(); resolve(); } })
         .to(host.querySelectorAll('.g-kicker, .g-tag'), { opacity: 0, duration: 0.25 }, 0)
         .to(letters, { yPercent: -115, duration: 0.5, ease: 'power3.in', stagger: 0.03 }, 0)
-        .to(svg, { scale: 7, rotation: 40, duration: 1.05, ease: 'power3.in' }, 0.05)
-        .to(host, { backgroundColor: 'rgba(20, 14, 56, 0)', duration: 0.55, ease: 'power1.in' }, 0.45)
-        .to(svg, { opacity: 0, duration: 0.35 }, 0.75);
+        .to(art.state, { zoom: 6, spin: '+=0.5', duration: 1.05, ease: 'power3.in' }, 0.05)
+        .to(art.state, { fade: 0, duration: 0.4 }, 0.7)
+        .to(host, { backgroundColor: 'rgba(20, 14, 56, 0)', duration: 0.55, ease: 'power1.in' }, 0.45);
     }
     addEventListener('keydown', leave);
     addEventListener('wheel', leave, { passive: true });

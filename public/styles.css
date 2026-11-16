@@ -1054,16 +1054,14 @@ table.acc.news td:last-child { white-space: normal; min-width: 76px; }
 .stage.court .btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .stage.court .btn { color: var(--text); border-color: var(--line); background: transparent; }
 
-/* ---------- the entrance: a guilloche rosette, as engraved on banknotes ---------- */
+/* ---------- the entrance: a flower blooming in ASCII ---------- */
 .intro { position: fixed; inset: 0; z-index: 200; background: rgb(20, 14, 56); color: #f1eadc; overflow: hidden; display: grid; place-items: center; cursor: pointer; }
-.intro .g-rosette { position: absolute; left: 50%; top: 50%; width: min(128vh, 128vw); height: min(128vh, 128vw); translate: -50% -50%; overflow: visible; will-change: transform; }
-.g-band path { fill: none; stroke: #b9a8ff; stroke-width: .7; vector-effect: non-scaling-stroke; }
-.g-band:nth-of-type(odd) path { stroke: #8f7cf0; }
-.g-micro { font-family: var(--mono); letter-spacing: .32em; text-transform: uppercase; fill: #cdc0ff; }
-.intro .g-word { position: relative; margin: 0; display: flex; font: italic 400 clamp(96px, 24vw, 340px)/.9 var(--display); letter-spacing: -.03em; padding: .08em .12em .16em; }
+.intro canvas { position: absolute; inset: 0; pointer-events: none; }
+.intro .g-glow { filter: blur(22px) saturate(1.4); opacity: .75; transform: scale(1.02); }
+.intro .g-word { position: relative; margin: 0; display: flex; font: italic 400 clamp(96px, 24vw, 340px)/.9 var(--display); letter-spacing: -.03em; padding: .08em .12em .16em; text-shadow: 0 0 40px rgba(20, 14, 56, .9), 0 0 12px rgba(20, 14, 56, .8); }
 .intro .g-word span { display: block; overflow: hidden; padding: .06em .02em .2em; margin: -.06em -.02em -.2em; }
 .intro .g-word i { display: block; font-style: inherit; will-change: transform; }
-.intro .g-tag { position: absolute; left: 0; right: 0; top: calc(50% + clamp(60px, 13vw, 190px)); margin: 0; text-align: center; font: 400 clamp(15px, 1.7vw, 24px) var(--display); letter-spacing: .01em; }
+.intro .g-tag { position: absolute; left: 0; right: 0; top: calc(50% + clamp(60px, 13vw, 190px)); margin: 0; text-align: center; font: 400 clamp(15px, 1.7vw, 24px) var(--display); letter-spacing: .01em; text-shadow: 0 0 18px rgba(20, 14, 56, .95); }
 .intro .g-tag em { font-style: italic; color: #cdc0ff; }
 .intro .g-kicker { position: absolute; left: clamp(18px, 4vw, 56px); right: clamp(18px, 4vw, 56px); margin: 0; display: flex; justify-content: space-between; gap: 16px; font: 500 11px var(--mono); letter-spacing: .2em; text-transform: uppercase; color: #b6acdf; }
 .intro .g-top { top: clamp(18px, 4vh, 40px); } .intro .g-bottom { bottom: clamp(18px, 4vh, 40px); }
