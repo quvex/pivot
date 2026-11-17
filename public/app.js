@@ -19,6 +19,9 @@ const ui = {
 // The public demo is static: the state comes from a saved snapshot and the trade engine runs in
 // the browser. Anything that would change data is refused with a clear message.
 const DEMO = document.documentElement.dataset.demo === 'true';
+// The public site: no server, Pivot's engine runs in this browser on the day's shared pull.
+const WEB = document.documentElement.dataset.web === 'true';
+const engine = WEB ? import('./engine.js') : null;
 const REPO_URL = 'https://github.com/quvex/pivot';
 let demo = null;
 async function demoApi(path, body) {
@@ -44,21 +47,21 @@ async function demoApi(path, body) {
 // On a shared (hosted) server a visitor's settings live in this browser and go with every request;
 // the server keeps nothing. On your own computer the header is unused.
 const VISITOR_KEY = 'pivot.visitor';
+let memVisitor = '';
+const visitorJson = () => { let v = ''; try { v = localStorage.getItem(VISITOR_KEY) || ''; } catch { /* storage blocked: settings last this visit */ } return v || memVisitor; };
 const visitorHeader = () => {
-  let v = '';
-  try { v = localStorage.getItem(VISITOR_KEY) || ''; } catch { /* storage blocked: settings last this visit */ }
-  v ||= memVisitor;
+  const v = visitorJson();
   return v ? { 'X-Pivot-Visitor': btoa(String.fromCharCode(...new TextEncoder().encode(v))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') } : {};
 };
-let memVisitor = '';
+const keepVisitor = (json) => { if (json?.visitor) { memVisitor = JSON.stringify(json.visitor); try { localStorage.setItem(VISITOR_KEY, memVisitor); } catch { /* kept in memory */ } } return json; };
 async function api(path, body) {
   if (DEMO) return demoApi(path, body);
+  if (WEB) { let sent = {}; try { sent = JSON.parse(visitorJson() || '{}'); } catch { /* start over */ } return keepVisitor(await (await engine).api(path, body, sent)); }
   const headers = { ...visitorHeader(), ...(body ? { 'Content-Type': 'application/json' } : {}) };
   const res = await fetch(path, body ? { method: 'POST', headers, body: JSON.stringify(body) } : { headers });
   const json = await res.json();
   if (!res.ok) { const err = new Error(json.error || `Request failed (${res.status})`); err.code = json.code; throw err; }
-  if (json.visitor) { memVisitor = JSON.stringify(json.visitor); try { localStorage.setItem(VISITOR_KEY, memVisitor); } catch { /* kept in memory */ } }
-  return json;
+  return keepVisitor(json);
 }
 
 async function load() {
@@ -462,7 +465,8 @@ function renderOnboard(app) {
         ${!lg ? `<form id="ob-find" class="ob-form" novalidate>
             <label for="ob-id">League link or ID</label>
             <input id="ob-id" value="${esc(o.input)}" placeholder="fantasy.espn.com/basketball/league?leagueId=…" autocomplete="off" spellcheck="false">
-            ${o.private ? `<p class="ob-help">ESPN only shows private leagues to their members. While signed in to espn.com, open your browser's developer tools, then Application → Cookies → espn.com, and copy these two values. ${S.hosted ? 'They are saved in this browser, not on the Pivot server, and only ever passed on to ESPN.' : 'They stay on this computer and are only ever sent to ESPN.'}</p>
+            ${o.private && WEB ? `<p class="ob-help">ESPN only shows private leagues to their members. Sign in to espn.com in this browser, then try again: ESPN recognises you and lets Pivot read your league. Chrome and Edge allow this; Safari and Firefox block it, so use one of the first two, or ask your league manager to make the league viewable to the public in the league's settings.</p>`
+            : o.private ? `<p class="ob-help">ESPN only shows private leagues to their members. While signed in to espn.com, open your browser's developer tools, then Application → Cookies → espn.com, and copy these two values. ${S.hosted ? 'They are saved in this browser, not on the Pivot server, and only ever passed on to ESPN.' : 'They stay on this computer and are only ever sent to ESPN.'}</p>
               <label for="ob-s2">espn_s2</label><input id="ob-s2" type="password" autocomplete="off">
               <label for="ob-swid">SWID</label><input id="ob-swid" type="password" autocomplete="off" placeholder="{XXXXXXXX-XXXX-…}">`
             : '<p class="ob-help">Open your league on fantasy.espn.com and copy the address from the browser bar.</p>'}
@@ -487,8 +491,8 @@ function renderOnboard(app) {
       if (o.busy) return;
       o.input = $('#ob-id').value.trim();
       if (!o.input) { o.error = 'Paste your league link or ID first.'; return again(); }
-      const cookies = o.private ? { espnS2: $('#ob-s2').value.trim(), swid: $('#ob-swid').value.trim() } : {};
-      if (o.private && (!cookies.espnS2 || !cookies.swid)) { o.error = 'Both cookies are needed for a private league.'; return again(); }
+      const cookies = o.private && !WEB ? { espnS2: $('#ob-s2').value.trim(), swid: $('#ob-swid').value.trim() } : {};
+      if (o.private && !WEB && (!cookies.espnS2 || !cookies.swid)) { o.error = 'Both cookies are needed for a private league.'; return again(); }
       o.busy = true; o.error = ''; again();
       try {
         const { league } = await api('/api/league/preview', { leagueId: o.input, ...cookies });
@@ -1407,7 +1411,7 @@ function renderSettings(app) {
   const scoring = S.ready ? S.meta.scoring : s.scoring;
   const roster = (s.manualRoster || []).map((id) => byId.get(id)).filter(Boolean);
   app.innerHTML = `
-    <div class="page-head"><div><h1>Settings</h1><p>${S.hosted ? 'Your settings are saved in this browser, not on the server: there is no account or password. Private-league cookies stay in this browser and pass through the server only on their way to ESPN. Clearing this site\'s data starts you over.' : 'Everything is stored on this computer in <code>~/fantasy-hoops/data</code>. Cookies and keys are never sent anywhere except ESPN and Anthropic respectively.'}</p></div></div>
+    <div class="page-head"><div><h1>Settings</h1><p>${WEB ? 'Your settings are saved in this browser: there is no account or password, and nothing about you is stored anywhere else. Clearing this site\'s data starts you over.' : S.hosted ? 'Your settings are saved in this browser, not on the server: there is no account or password. Private-league cookies stay in this browser and pass through the server only on their way to ESPN. Clearing this site\'s data starts you over.' : 'Everything is stored on this computer in <code>~/fantasy-hoops/data</code>. Cookies and keys are never sent anywhere except ESPN and Anthropic respectively.'}</p></div></div>
     <div class="grid2">
       <div class="stack">
         <div class="panel"><header><h2>ESPN league</h2><p>${S.league ? `Synced: ${esc(S.league.name)} (${S.league.teams.length} teams)` : 'Not synced'}</p></header><div class="body"><form class="form" id="f-league">
@@ -1415,10 +1419,10 @@ function renderSettings(app) {
             <span class="hint">Open your league on fantasy.espn.com; the number after <code>leagueId=</code> in the address bar.</span></div>
           ${S.hosted ? '' : `<div class="field"><label for="season">Season (the year it ends)</label><input id="season" type="number" value="${esc(s.season)}" style="width:120px"></div>`}
           ${S.league ? `<div class="field"><label for="teamId">My team</label><select id="teamId"><option value="">Choose…</option>${S.league.teams.map((t) => `<option value="${t.id}" ${S.myTeam?.id === t.id ? 'selected' : ''}>${esc(t.name)}${t.owner ? ` (${esc(t.owner)})` : ''}</option>`).join('')}</select></div>` : ''}
-          <div class="field"><label>Private league cookies ${s.hasEspnCookies ? '<span class="chip good">Saved</span>' : ''}</label>
+          ${WEB ? '<p class="hint">Private league? Sign in to espn.com in this browser (Chrome or Edge) and ESPN lets Pivot read it. Or ask your league manager to make the league viewable to the public.</p>' : `<div class="field"><label>Private league cookies ${s.hasEspnCookies ? '<span class="chip good">Saved</span>' : ''}</label>
             <input id="espnS2" type="password" placeholder="${s.hasEspnCookies ? 'espn_s2 saved (leave blank to keep)' : 'espn_s2'}" autocomplete="off">
             <input id="swid" type="password" placeholder="${s.hasEspnCookies ? 'SWID saved (leave blank to keep)' : 'SWID, including the {braces}'}" autocomplete="off">
-            <span class="hint">Only needed if the league is not public. While logged in to espn.com: browser dev tools → Application → Cookies → espn.com, copy <code>espn_s2</code> and <code>SWID</code>.${s.hasEspnCookies ? ' <button type="button" class="btn link" id="clear-espn">Remove saved cookies</button>' : ''}</span></div>
+            <span class="hint">Only needed if the league is not public. While logged in to espn.com: browser dev tools → Application → Cookies → espn.com, copy <code>espn_s2</code> and <code>SWID</code>.${s.hasEspnCookies ? ' <button type="button" class="btn link" id="clear-espn">Remove saved cookies</button>' : ''}</span></div>`}
           <div><button class="btn primary">Save and sync</button></div>
         </form></div></div>
 
@@ -1468,7 +1472,7 @@ ${S.meta?.backtest ? accuracyPanel(S.meta.backtest, S.meta.live) : ''}
   };
   $('#f-league').onsubmit = (e) => {
     e.preventDefault();
-    save({ leagueId: $('#leagueId').value, ...($('#season') ? { season: $('#season').value } : {}), espnS2: $('#espnS2').value, swid: $('#swid').value, ...($('#teamId') ? { teamId: $('#teamId').value } : {}) });
+    save({ leagueId: $('#leagueId').value, ...($('#season') ? { season: $('#season').value } : {}), ...($('#espnS2') ? { espnS2: $('#espnS2').value, swid: $('#swid').value } : {}), ...($('#teamId') ? { teamId: $('#teamId').value } : {}) });
   };
   if ($('#f-ai')) $('#f-ai').onsubmit = (e) => { e.preventDefault(); save({ anthropicKey: $('#anthropicKey').value, aiModel: $('#aiModel').value }); };
   if ($('#aiProvider')) $('#aiProvider').onchange = (e) => save({ aiProvider: e.target.value });

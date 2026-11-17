@@ -8,9 +8,9 @@ suggestion comes with the reasons behind it.
 It works with any ESPN points league, season-long or head-to-head. Category leagues run too, but with
 a stand-in (see below).
 
-[Live demo](https://quvex.github.io/pivot/). It runs on a frozen snapshot of a real league with the
-team names changed, and there's nothing to install. The trade tool runs in your browser, so you can
-draft offers against that league.
+[Use it](https://quvex.github.io/pivot/) with your own ESPN league: it's free, needs no account and
+has nothing to install. Or try the [demo](https://quvex.github.io/pivot/demo/), a frozen snapshot of
+a real league with the team names changed.
 
 <!-- Add a screenshot or short GIF of the front page and the trade builder here: docs/screenshot.png -->
 
@@ -270,35 +270,24 @@ stays. From the ranking sites, only ESPN's projection rank and the combined cons
 script refuses to write the file if any original name or secret is still in it.
 
 In the browser, the trade engine (`lib/trade.mjs` has no dependencies) runs client-side, so mock
-offers and the builder work live. GitHub Actions publishes the demo to GitHub Pages on every push.
+offers and the builder work live. The site workflow publishes it at `/demo` alongside the live app.
 
-### Hosting it for other people
+### The public site
 
-`PIVOT_HOSTED=1 npm start` runs one server for many visitors (`lib/hosted.mjs`). Rankings, stats
-and news are pulled once a day for everyone. Each visitor's settings (league, team, private-league
-cookies, scoring, manual roster and untouchables) are saved in their own browser and sent with each
-request. The server checks them and keeps nothing, so there are no accounts, and it runs fine on
-a host whose disk is wiped on restart. A visitor's league is read from ESPN when they use the app
-and kept for half an hour. Their dataset is rebuilt from the shared pull with their league's
-scoring and size, which takes about a second and is then cached. The written briefing runs once a
-day for everyone, and only if the server has `ANTHROPIC_API_KEY`. Faces and headshots are off.
-Requests are rate-limited per address.
+[quvex.github.io/pivot](https://quvex.github.io/pivot/) is the full app for anyone, free, with no
+server. Once a day a GitHub Action (`.github/workflows/pages.yml`) pulls every outside source,
+builds the day's shared data with default scoring (`scripts/daily-pull.mjs`) and publishes it with
+the app (`scripts/build-site.mjs`). The app then runs Pivot's engine in the visitor's browser
+(`web/engine.mjs`, bundled with esbuild; Node-only modules are swapped for small stand-ins in
+`web/shims`). The visitor's league is read straight from ESPN, whose league API accepts requests
+from other sites, and their rankings, trades and waivers are rebuilt from the day's data with
+their league's scoring and size. Settings are saved in the visitor's browser. A private league
+works when the visitor is signed in to espn.com in Chrome or Edge, which send that sign-in along;
+Safari and Firefox block it. The frozen demo is at `/demo`. The written briefing runs in the
+Action if the repository has an `ANTHROPIC_API_KEY` secret. Faces and headshots are off.
 
-**Free hosting on Hugging Face Spaces.** Create a Docker Space (blank template, CPU basic, public)
-and add the two files in `deploy/huggingface/`. The Space builds the app from this repository.
-To redeploy on every push, add a Hugging Face write token as the repository secret `HF_TOKEN` and
-the Space name (`user/space`) as the repository variable `HF_SPACE`; `.github/workflows/space.yml`
-does the rest. A free Space sleeps after two days without visitors and wakes on the next one.
-
-The root `Dockerfile` runs the same thing anywhere else; `render.yaml` is a Render blueprint for its
-free plan (slower: 0.1 CPU, and it sleeps after 15 minutes).
-
-| Variable | Meaning |
-|---|---|
-| `PIVOT_HOSTED` | `1` for hosted mode |
-| `PIVOT_DATA_DIR` | where the daily pull is kept |
-| `PIVOT_REFRESH_HOUR` | local hour after which the daily pull runs (default 6, Eastern) |
-| `ANTHROPIC_API_KEY` | optional: the shared written briefing |
+`PIVOT_HOSTED=1 npm start` runs the same thing as one server for many visitors instead
+(`lib/hosted.mjs`, with the root `Dockerfile`), for anyone who would rather host it.
 
 ### The players on the court
 

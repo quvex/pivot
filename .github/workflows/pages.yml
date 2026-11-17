@@ -1,0 +1,62 @@
+name: Site
+
+# The public site (GitHub Pages). Once a day, and on every push to main: pull every outside source,
+# build the day's shared data, and publish the app (which runs in each visitor's browser) with the
+# frozen demo under /demo. History and predictions are carried between runs in the Actions cache,
+# so day-over-day movement and the live track record keep going.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 11 * * *' # 6 am Eastern in winter, 7 am in summer
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PIVOT_DATA_DIR: pull
+      TZ: America/New_York
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: |
+            pull/history
+            pull/predictions
+            pull/hist
+            pull/sleeper-players.json
+          key: pull-${{ github.run_id }}
+          restore-keys: pull-
+      - name: Pull today's data
+        run: node scripts/daily-pull.mjs
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - run: node scripts/build-site.mjs pull
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
