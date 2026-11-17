@@ -41,11 +41,23 @@ async function demoApi(path, body) {
   throw new Error('This is a read-only demo. Run Pivot on your own league to change settings or refresh data.');
 }
 
+// On a shared (hosted) server a visitor's settings live in this browser and go with every request;
+// the server keeps nothing. On your own computer the header is unused.
+const VISITOR_KEY = 'pivot.visitor';
+const visitorHeader = () => {
+  let v = '';
+  try { v = localStorage.getItem(VISITOR_KEY) || ''; } catch { /* storage blocked: settings last this visit */ }
+  v ||= memVisitor;
+  return v ? { 'X-Pivot-Visitor': btoa(String.fromCharCode(...new TextEncoder().encode(v))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') } : {};
+};
+let memVisitor = '';
 async function api(path, body) {
   if (DEMO) return demoApi(path, body);
-  const res = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  const headers = { ...visitorHeader(), ...(body ? { 'Content-Type': 'application/json' } : {}) };
+  const res = await fetch(path, body ? { method: 'POST', headers, body: JSON.stringify(body) } : { headers });
   const json = await res.json();
   if (!res.ok) { const err = new Error(json.error || `Request failed (${res.status})`); err.code = json.code; throw err; }
+  if (json.visitor) { memVisitor = JSON.stringify(json.visitor); try { localStorage.setItem(VISITOR_KEY, memVisitor); } catch { /* kept in memory */ } }
   return json;
 }
 
@@ -450,7 +462,7 @@ function renderOnboard(app) {
         ${!lg ? `<form id="ob-find" class="ob-form" novalidate>
             <label for="ob-id">League link or ID</label>
             <input id="ob-id" value="${esc(o.input)}" placeholder="fantasy.espn.com/basketball/league?leagueId=…" autocomplete="off" spellcheck="false">
-            ${o.private ? `<p class="ob-help">ESPN only shows private leagues to their members. While signed in to espn.com, open your browser's developer tools, then Application → Cookies → espn.com, and copy these two values. ${S.hosted ? 'They are stored encrypted on the Pivot server, tied to this browser, and only ever sent to ESPN.' : 'They stay on this computer and are only ever sent to ESPN.'}</p>
+            ${o.private ? `<p class="ob-help">ESPN only shows private leagues to their members. While signed in to espn.com, open your browser's developer tools, then Application → Cookies → espn.com, and copy these two values. ${S.hosted ? 'They are saved in this browser, not on the Pivot server, and only ever passed on to ESPN.' : 'They stay on this computer and are only ever sent to ESPN.'}</p>
               <label for="ob-s2">espn_s2</label><input id="ob-s2" type="password" autocomplete="off">
               <label for="ob-swid">SWID</label><input id="ob-swid" type="password" autocomplete="off" placeholder="{XXXXXXXX-XXXX-…}">`
             : '<p class="ob-help">Open your league on fantasy.espn.com and copy the address from the browser bar.</p>'}
@@ -1395,7 +1407,7 @@ function renderSettings(app) {
   const scoring = S.ready ? S.meta.scoring : s.scoring;
   const roster = (s.manualRoster || []).map((id) => byId.get(id)).filter(Boolean);
   app.innerHTML = `
-    <div class="page-head"><div><h1>Settings</h1><p>${S.hosted ? 'Your settings are tied to this browser: there is no account or password. Private-league cookies are stored encrypted and only ever sent to ESPN. Clearing this site\'s cookies starts you over.' : 'Everything is stored on this computer in <code>~/fantasy-hoops/data</code>. Cookies and keys are never sent anywhere except ESPN and Anthropic respectively.'}</p></div></div>
+    <div class="page-head"><div><h1>Settings</h1><p>${S.hosted ? 'Your settings are saved in this browser, not on the server: there is no account or password. Private-league cookies stay in this browser and pass through the server only on their way to ESPN. Clearing this site\'s data starts you over.' : 'Everything is stored on this computer in <code>~/fantasy-hoops/data</code>. Cookies and keys are never sent anywhere except ESPN and Anthropic respectively.'}</p></div></div>
     <div class="grid2">
       <div class="stack">
         <div class="panel"><header><h2>ESPN league</h2><p>${S.league ? `Synced: ${esc(S.league.name)} (${S.league.teams.length} teams)` : 'Not synced'}</p></header><div class="body"><form class="form" id="f-league">

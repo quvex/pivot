@@ -275,22 +275,28 @@ offers and the builder work live. GitHub Actions publishes the demo to GitHub Pa
 ### Hosting it for other people
 
 `PIVOT_HOSTED=1 npm start` runs one server for many visitors (`lib/hosted.mjs`). Rankings, stats
-and news are pulled once a day for everyone. Each visitor gets an anonymous session cookie and
-their own settings: league, team, scoring, manual roster and untouchables. There are no accounts
-or passwords. A visitor's league is read from ESPN when they use the app and kept for half an
-hour. Their dataset is rebuilt from the shared pull with their league's scoring and size, which
-takes about a second and is then cached. Private-league cookies are encrypted at rest with
-`PIVOT_SECRET`. The written briefing runs once a day for everyone, and only if the server has
-`ANTHROPIC_API_KEY`. Faces and headshots are off. Requests are rate-limited per address.
+and news are pulled once a day for everyone. Each visitor's settings (league, team, private-league
+cookies, scoring, manual roster and untouchables) are saved in their own browser and sent with each
+request. The server checks them and keeps nothing, so there are no accounts, and it runs fine on
+a host whose disk is wiped on restart. A visitor's league is read from ESPN when they use the app
+and kept for half an hour. Their dataset is rebuilt from the shared pull with their league's
+scoring and size, which takes about a second and is then cached. The written briefing runs once a
+day for everyone, and only if the server has `ANTHROPIC_API_KEY`. Faces and headshots are off.
+Requests are rate-limited per address.
 
-The `Dockerfile` builds this mode, with data on a volume at `/data`. `render.yaml` deploys it to
-Render as a web service with a 1 GB disk.
+**Free hosting on Hugging Face Spaces.** Create a Docker Space (blank template, CPU basic, public)
+and add the two files in `deploy/huggingface/`. The Space builds the app from this repository.
+To redeploy on every push, add a Hugging Face write token as the repository secret `HF_TOKEN` and
+the Space name (`user/space`) as the repository variable `HF_SPACE`; `.github/workflows/space.yml`
+does the rest. A free Space sleeps after two days without visitors and wakes on the next one.
+
+The root `Dockerfile` runs the same thing anywhere else; `render.yaml` is a Render blueprint for its
+free plan (slower: 0.1 CPU, and it sleeps after 15 minutes).
 
 | Variable | Meaning |
 |---|---|
 | `PIVOT_HOSTED` | `1` for hosted mode |
-| `PIVOT_SECRET` | encrypts visitors' ESPN cookies; keep it stable |
-| `PIVOT_DATA_DIR` | where data and visitor settings live |
+| `PIVOT_DATA_DIR` | where the daily pull is kept |
 | `PIVOT_REFRESH_HOUR` | local hour after which the daily pull runs (default 6, Eastern) |
 | `ANTHROPIC_API_KEY` | optional: the shared written briefing |
 

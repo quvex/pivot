@@ -59,28 +59,6 @@ function readBody(req) {
 }
 
 const cleanNum = (v, lo, hi) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : null);
-const cleanIds = (v, max) => [...new Set(v.map(Number).filter(Number.isFinite))].slice(0, max);
-const leagueIdOf = (v) => { const m = String(v ?? '').match(/leagueId=(\d+)/) || String(v ?? '').match(/^\s*(\d+)\s*$/); return m ? m[1] : ''; };
-
-// A hosted visitor can set their league, team, cookies, scoring, roster and untouchables.
-function updateVisitor(sid, body) {
-  const cur = hosted.visitorSettings(sid);
-  const patch = {};
-  if ('leagueId' in body) { patch.leagueId = leagueIdOf(body.leagueId); if (patch.leagueId !== cur.leagueId) patch.teamId = null; }
-  if ('teamId' in body) patch.teamId = body.teamId == null || body.teamId === '' ? null : cleanNum(body.teamId, 0, 1e6);
-  for (const key of ['espnS2', 'swid']) if (typeof body[key] === 'string' && body[key].trim()) patch[key] = body[key].trim().slice(0, 600);
-  for (const key of body.clear || []) if (['espnS2', 'swid'].includes(key)) patch[key] = '';
-  if (Array.isArray(body.manualRoster)) patch.manualRoster = cleanIds(body.manualRoster, 30);
-  if (Array.isArray(body.untouchables)) patch.untouchables = cleanIds(body.untouchables, 60);
-  if (body.scoring && typeof body.scoring === 'object') {
-    const scoring = {};
-    for (const [k, v] of Object.entries(body.scoring)) if (STAT_LABELS[k] && Number.isFinite(+v) && +v !== 0) scoring[k] = cleanNum(v, -100, 100);
-    patch.scoring = scoring; patch.scoringSource = 'custom';
-  }
-  if (body.resetScoring) { patch.scoring = DEFAULT_SCORING; patch.scoringSource = 'default'; }
-  return hosted.saveVisitor(sid, patch);
-}
-
 async function updateSettings(body) {
   const cur = loadSettings();
   const patch = {};
@@ -130,11 +108,11 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) {
       // who is asking, and the data they see
       const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-      const sid = HOSTED ? hosted.sessionId(req, res) : null;
+      const visitor = HOSTED ? hosted.visitorFrom(req, STAT_LABELS) : null;
       if (HOSTED && !hosted.allowed(ip, 'api', 240)) return send(429, { error: 'Too many requests. Wait a minute and try again.' });
       const view = async () => {
         if (!HOSTED) return { data, settings: loadSettings(), job };
-        const v = await hosted.dataFor(hosted.visitorSettings(sid));
+        const v = await hosted.dataFor(visitor);
         return { ...v, job: hosted.shared.job };
       };
       if (req.method === 'GET' && url.pathname === '/api/state') { const v = await view(); return send(200, { ...buildState(v.data, v.settings, v.job), hosted: HOSTED }); }
@@ -157,15 +135,14 @@ const server = http.createServer(async (req, res) => {
         if (url.pathname === '/api/refresh') {
           if (!HOSTED) { startRefresh(); return send(202, { job }); }
           // a visitor can re-pull their own league; the shared sources update daily
-          const s = hosted.visitorSettings(sid);
-          if (s.leagueId) await hosted.leagueFor(s, { fresh: true }).catch(() => null);
+          if (visitor.leagueId) await hosted.leagueFor(visitor, { fresh: true }).catch(() => null);
           return send(202, { job: hosted.shared.job });
         }
         if (url.pathname === '/api/league/preview') {
           // Look a league up before saving it, so onboarding can show its name, format and teams.
           const m = String(body.leagueId || '').match(/leagueId=(\d+)/) || String(body.leagueId || '').match(/^\s*(\d+)\s*$/);
           if (!m) return send(400, { error: 'Paste your league link from fantasy.espn.com, or just the number after leagueId=.', code: 'bad_id' });
-          const cur = HOSTED ? hosted.visitorSettings(sid) : loadSettings();
+          const cur = HOSTED ? visitor : loadSettings();
           const espnS2 = typeof body.espnS2 === 'string' && body.espnS2.trim() ? body.espnS2.trim() : cur.espnS2;
           const swid = typeof body.swid === 'string' && body.swid.trim() ? body.swid.trim() : cur.swid;
           try {
@@ -196,7 +173,11 @@ const server = http.createServer(async (req, res) => {
           return send(202, { enabled: true, ...status });
         }
         if (url.pathname === '/api/settings') {
-          if (HOSTED) return send(200, { job: hosted.shared.job, settings: publicSettings(updateVisitor(sid, body)) });
+          if (HOSTED) {
+            // nothing is stored here: the browser keeps the result and sends it with each request
+            const next = hosted.applyVisitor(visitor, body, STAT_LABELS);
+            return send(200, { job: hosted.shared.job, settings: publicSettings(next), visitor: hosted.keepable(next) });
+          }
           await updateSettings(body); return send(200, { job, settings: publicSettings() });
         }
       }
