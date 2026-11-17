@@ -1,0 +1,17 @@
+# Render blueprint: one web service with a small persistent disk for the daily data and visitor
+# settings. PIVOT_SECRET encrypts private-league cookies at rest; Render generates it.
+services:
+  - type: web
+    name: pivot
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/status
+    envVars:
+      - key: PIVOT_SECRET
+        generateValue: true
+      - key: PIVOT_REFRESH_HOUR
+        value: "6"
+    disk:
+      name: pivot-data
+      mountPath: /data
+      sizeGB: 1

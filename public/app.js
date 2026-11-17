@@ -105,7 +105,7 @@ function renderChrome() {
     return;
   }
   $('#banner').innerHTML = busy
-    ? '<div class="bar busy">Pulling rankings, stats and news. This takes about 15 seconds.</div>'
+    ? `<div class="bar busy">${S?.hosted ? 'Pulling today\'s rankings, stats and news for everyone. This takes a few minutes the first time.' : 'Pulling rankings, stats and news. This takes about 15 seconds.'}</div>`
     : S?.job.error ? `<div class="bar err">Update failed: ${esc(S.job.error)}</div>`
     : failed.length ? `<div class="bar err">${failed.map((f) => `${esc(f.label)}: ${esc(f.detail)}`).join(' · ')} <a href="#settings">Details</a></div>` : '';
 }
@@ -379,7 +379,7 @@ function renderHome(app) {
   const seg = stage.querySelectorAll('[data-view]');
   // the floor lettering is drawn in Bodoni Moda, so wait for the font
   // Faces are made and kept on this computer only (never in the demo): ask the server which exist.
-  const faceInfo = DEMO ? Promise.resolve(null) : fetch('/api/heads').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const faceInfo = DEMO || S.hosted ? Promise.resolve(null) : fetch('/api/heads').then((r) => (r.ok ? r.json() : null)).catch(() => null);
   Promise.all([import('./stage.js'), faceInfo, document.fonts?.ready]).then(([{ mountStage }, heads]) => {
     if (!stage.isConnected) return;
     const ready = new Set(heads?.ready || []);
@@ -450,7 +450,7 @@ function renderOnboard(app) {
         ${!lg ? `<form id="ob-find" class="ob-form" novalidate>
             <label for="ob-id">League link or ID</label>
             <input id="ob-id" value="${esc(o.input)}" placeholder="fantasy.espn.com/basketball/league?leagueId=…" autocomplete="off" spellcheck="false">
-            ${o.private ? `<p class="ob-help">ESPN only shows private leagues to their members. While signed in to espn.com, open your browser's developer tools, then Application → Cookies → espn.com, and copy these two values. They stay on this computer and are only ever sent to ESPN.</p>
+            ${o.private ? `<p class="ob-help">ESPN only shows private leagues to their members. While signed in to espn.com, open your browser's developer tools, then Application → Cookies → espn.com, and copy these two values. ${S.hosted ? 'They are stored encrypted on the Pivot server, tied to this browser, and only ever sent to ESPN.' : 'They stay on this computer and are only ever sent to ESPN.'}</p>
               <label for="ob-s2">espn_s2</label><input id="ob-s2" type="password" autocomplete="off">
               <label for="ob-swid">SWID</label><input id="ob-swid" type="password" autocomplete="off" placeholder="{XXXXXXXX-XXXX-…}">`
             : '<p class="ob-help">Open your league on fantasy.espn.com and copy the address from the browser bar.</p>'}
@@ -560,7 +560,7 @@ function h2hStandings(w) {
 // One ranked list in the style of Bleacher Report's NBA 100. Each row carries the numbers you
 // scan (projection, recent form, ownership, today's change); opening it shows every source's rank,
 // the read on the player and a rating breakdown.
-const headshot = (p) => (DEMO ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=96&h=70&cb=1`);
+const headshot = (p) => (DEMO || S?.hosted ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=96&h=70&cb=1`);
 const TEAM_NAMES = { ATL: 'Hawks', BOS: 'Celtics', BKN: 'Nets', CHA: 'Hornets', CHI: 'Bulls', CLE: 'Cavaliers', DAL: 'Mavericks', DEN: 'Nuggets', DET: 'Pistons', GSW: 'Warriors', HOU: 'Rockets', IND: 'Pacers', LAC: 'Clippers', LAL: 'Lakers', MEM: 'Grizzlies', MIA: 'Heat', MIL: 'Bucks', MIN: 'Timberwolves', NOP: 'Pelicans', NYK: 'Knicks', OKC: 'Thunder', ORL: 'Magic', PHI: '76ers', PHX: 'Suns', POR: 'Trail Blazers', SAC: 'Kings', SAS: 'Spurs', TOR: 'Raptors', UTA: 'Jazz', WAS: 'Wizards', FA: 'Free agent' };
 
 // Ratings: Pivot's model rank stretched onto 99 down to 40, and each skill as a percentile among
@@ -1395,13 +1395,13 @@ function renderSettings(app) {
   const scoring = S.ready ? S.meta.scoring : s.scoring;
   const roster = (s.manualRoster || []).map((id) => byId.get(id)).filter(Boolean);
   app.innerHTML = `
-    <div class="page-head"><div><h1>Settings</h1><p>Everything is stored on this computer in <code>~/fantasy-hoops/data</code>. Cookies and keys are never sent anywhere except ESPN and Anthropic respectively.</p></div></div>
+    <div class="page-head"><div><h1>Settings</h1><p>${S.hosted ? 'Your settings are tied to this browser: there is no account or password. Private-league cookies are stored encrypted and only ever sent to ESPN. Clearing this site\'s cookies starts you over.' : 'Everything is stored on this computer in <code>~/fantasy-hoops/data</code>. Cookies and keys are never sent anywhere except ESPN and Anthropic respectively.'}</p></div></div>
     <div class="grid2">
       <div class="stack">
         <div class="panel"><header><h2>ESPN league</h2><p>${S.league ? `Synced: ${esc(S.league.name)} (${S.league.teams.length} teams)` : 'Not synced'}</p></header><div class="body"><form class="form" id="f-league">
           <div class="field"><label for="leagueId">League ID or league URL</label><input id="leagueId" value="${esc(s.leagueId)}" placeholder="e.g. 12345678" autocomplete="off">
             <span class="hint">Open your league on fantasy.espn.com; the number after <code>leagueId=</code> in the address bar.</span></div>
-          <div class="field"><label for="season">Season (the year it ends)</label><input id="season" type="number" value="${esc(s.season)}" style="width:120px"></div>
+          ${S.hosted ? '' : `<div class="field"><label for="season">Season (the year it ends)</label><input id="season" type="number" value="${esc(s.season)}" style="width:120px"></div>`}
           ${S.league ? `<div class="field"><label for="teamId">My team</label><select id="teamId"><option value="">Choose…</option>${S.league.teams.map((t) => `<option value="${t.id}" ${S.myTeam?.id === t.id ? 'selected' : ''}>${esc(t.name)}${t.owner ? ` (${esc(t.owner)})` : ''}</option>`).join('')}</select></div>` : ''}
           <div class="field"><label>Private league cookies ${s.hasEspnCookies ? '<span class="chip good">Saved</span>' : ''}</label>
             <input id="espnS2" type="password" placeholder="${s.hasEspnCookies ? 'espn_s2 saved (leave blank to keep)' : 'espn_s2'}" autocomplete="off">
@@ -1415,7 +1415,7 @@ function renderSettings(app) {
           <input list="player-names" id="add-roster" placeholder="Add player…" style="margin-top:10px;width:260px" ${S.ready ? '' : 'disabled'}>
         </div></div>
 
-        <div class="panel"><header><h2>Written briefing (optional)</h2><p>${s.aiReady ? 'Enabled' : 'Off: news outcomes use built-in rules'}</p></header><div class="body">
+        ${S.hosted ? '' : `<div class="panel"><header><h2>Written briefing (optional)</h2><p>${s.aiReady ? 'Enabled' : 'Off: news outcomes use built-in rules'}</p></header><div class="body">
           <div class="field" style="margin-bottom:14px"><label for="aiProvider">Provider</label><select id="aiProvider" style="width:260px"><option value="anthropic" ${s.aiProvider !== 'compatible' ? 'selected' : ''}>Anthropic (Claude)</option><option value="compatible" ${s.aiProvider === 'compatible' ? 'selected' : ''}>Other (OpenAI-compatible API)</option></select></div>
           <form class="form" id="f-alt" ${s.aiProvider === 'compatible' ? '' : 'hidden'}>
           <div class="field"><label for="altBaseUrl">API address</label><input id="altBaseUrl" value="${esc(s.altBaseUrl)}" placeholder="https://…/v1" autocomplete="off">
@@ -1432,7 +1432,7 @@ function renderSettings(app) {
             <span class="hint">With a key, each daily update asks Claude to write the briefing and a one-line outcome per news item for your team. One request per update.${s.hasAnthropicKey ? ' <button type="button" class="btn link" id="clear-ai">Remove key</button>' : ''}</span></div>
           <div class="field"><label for="aiModel">Model</label><select id="aiModel" style="width:220px">${['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2'].map((m) => `<option ${s.aiModel === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
           <div><button class="btn primary">Save</button></div>
-        </form></div></div>
+        </form></div></div>`}
       </div>
 
       <div class="stack">
@@ -1443,9 +1443,9 @@ function renderSettings(app) {
 
 ${S.meta?.backtest ? accuracyPanel(S.meta.backtest, S.meta.live) : ''}
         <div class="panel"><header><h2>Daily update</h2><p>${S.ready ? `Last run ${esc(new Date(S.meta.refreshedAt).toLocaleString())}` : 'Never run'}</p></header>
-          <div class="body"><form class="form" id="f-hour"><div class="field"><label for="refreshHour">Update once a day after this hour (0 to 23)</label>
+          ${S.hosted ? '<div class="body"><p class="muted" style="margin:0">Rankings, stats and news update for everyone once a day. Refresh re-reads your league from ESPN.</p></div>' : `<div class="body"><form class="form" id="f-hour"><div class="field"><label for="refreshHour">Update once a day after this hour (0 to 23)</label>
             <div style="display:flex;gap:8px"><input id="refreshHour" type="number" min="0" max="23" value="${esc(s.refreshHour)}" style="width:90px"><button class="btn">Save</button></div>
-            <span class="hint">Runs while the app is running. For updates when it is closed, schedule <code>npm run refresh</code>.</span></div></form></div>
+            <span class="hint">Runs while the app is running. For updates when it is closed, schedule <code>npm run refresh</code>.</span></div></form></div>`}
           ${S.ready ? S.meta.status.map((st) => `<div class="src-row"><span><span class="dot ${st.ok ? '' : 'off'}"></span>${esc(st.label)}</span><span class="muted">${esc(st.detail)}</span></div>`).join('') : ''}
         </div>
       </div>
@@ -1456,13 +1456,13 @@ ${S.meta?.backtest ? accuracyPanel(S.meta.backtest, S.meta.live) : ''}
   };
   $('#f-league').onsubmit = (e) => {
     e.preventDefault();
-    save({ leagueId: $('#leagueId').value, season: $('#season').value, espnS2: $('#espnS2').value, swid: $('#swid').value, ...($('#teamId') ? { teamId: $('#teamId').value } : {}) });
+    save({ leagueId: $('#leagueId').value, ...($('#season') ? { season: $('#season').value } : {}), espnS2: $('#espnS2').value, swid: $('#swid').value, ...($('#teamId') ? { teamId: $('#teamId').value } : {}) });
   };
-  $('#f-ai').onsubmit = (e) => { e.preventDefault(); save({ anthropicKey: $('#anthropicKey').value, aiModel: $('#aiModel').value }); };
-  $('#aiProvider').onchange = (e) => save({ aiProvider: e.target.value });
-  $('#f-alt').onsubmit = (e) => { e.preventDefault(); save({ aiProvider: 'compatible', altBaseUrl: $('#altBaseUrl').value, altModel: $('#altModel').value, altKey: $('#altKey').value }); };
+  if ($('#f-ai')) $('#f-ai').onsubmit = (e) => { e.preventDefault(); save({ anthropicKey: $('#anthropicKey').value, aiModel: $('#aiModel').value }); };
+  if ($('#aiProvider')) $('#aiProvider').onchange = (e) => save({ aiProvider: e.target.value });
+  if ($('#f-alt')) $('#f-alt').onsubmit = (e) => { e.preventDefault(); save({ aiProvider: 'compatible', altBaseUrl: $('#altBaseUrl').value, altModel: $('#altModel').value, altKey: $('#altKey').value }); };
   if ($('#clear-alt')) $('#clear-alt').onclick = () => save({ clear: ['altKey'] });
-  $('#f-hour').onsubmit = (e) => { e.preventDefault(); save({ refreshHour: $('#refreshHour').value }); };
+  if ($('#f-hour')) $('#f-hour').onsubmit = (e) => { e.preventDefault(); save({ refreshHour: $('#refreshHour').value }); };
   $('#f-scoring').onsubmit = (e) => {
     e.preventDefault();
     const out = { ...scoring };

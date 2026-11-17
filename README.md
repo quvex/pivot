@@ -272,6 +272,28 @@ script refuses to write the file if any original name or secret is still in it.
 In the browser, the trade engine (`lib/trade.mjs` has no dependencies) runs client-side, so mock
 offers and the builder work live. GitHub Actions publishes the demo to GitHub Pages on every push.
 
+### Hosting it for other people
+
+`PIVOT_HOSTED=1 npm start` runs one server for many visitors (`lib/hosted.mjs`). Rankings, stats
+and news are pulled once a day for everyone. Each visitor gets an anonymous session cookie and
+their own settings: league, team, scoring, manual roster and untouchables. There are no accounts
+or passwords. A visitor's league is read from ESPN when they use the app and kept for half an
+hour. Their dataset is rebuilt from the shared pull with their league's scoring and size, which
+takes about a second and is then cached. Private-league cookies are encrypted at rest with
+`PIVOT_SECRET`. The written briefing runs once a day for everyone, and only if the server has
+`ANTHROPIC_API_KEY`. Faces and headshots are off. Requests are rate-limited per address.
+
+The `Dockerfile` builds this mode, with data on a volume at `/data`. `render.yaml` deploys it to
+Render as a web service with a 1 GB disk.
+
+| Variable | Meaning |
+|---|---|
+| `PIVOT_HOSTED` | `1` for hosted mode |
+| `PIVOT_SECRET` | encrypts visitors' ESPN cookies; keep it stable |
+| `PIVOT_DATA_DIR` | where data and visitor settings live |
+| `PIVOT_REFRESH_HOUR` | local hour after which the daily pull runs (default 6, Eastern) |
+| `ANTHROPIC_API_KEY` | optional: the shared written briefing |
+
 ### The players on the court
 
 Each figure on the home page is a realistic male base mesh (CC0, by Orange Juice Games, in
