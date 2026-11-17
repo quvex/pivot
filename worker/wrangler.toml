@@ -1,5 +1,5 @@
 # Deploy: cd worker && npx wrangler deploy   (after `npx wrangler login`)
-name = "pivot-espn"
+name = "r"
 main = "espn-relay.mjs"
 compatibility_date = "2026-10-01"
 workers_dev = true
