@@ -145,7 +145,9 @@ function render() {
   if (tab !== 'settings' && !DEMO) {
     const busy = S.job.running || polling;
     const connected = S.settings.leagueId || (S.settings.manualRoster || []).length;
-    if (!connected) return renderOnboard(app);
+    // on your own computer Pivot starts with setup; the public site opens on the court like any
+    // other day, and setup is at #connect
+    if (tab === 'connect' || (!connected && !S.hosted)) return renderOnboard(app);
     if (busy && (!S.ready || (S.settings.leagueId && !S.league))) return renderSettingUp(app);
     if (!S.ready) {
       app.innerHTML = '<div class="panel"><div class="empty">No data yet. Press Refresh to pull rankings and news.</div></div>';
@@ -335,7 +337,7 @@ function renderHome(app) {
             ${me ? `${board}
               ${moves.length ? `<ol class="moves">${moves.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : '<p class="muted">Nothing needs action today.</p>'}
               <a class="more" href="#week">${m ? 'See the matchup' : 'Plan the week'} <span aria-hidden="true">→</span></a>`
-            : `<p>Sync your ESPN league to see your standing and today's moves.</p><a class="more" href="#settings">Sync league <span aria-hidden="true">→</span></a>`}
+            : `<p>Sync your ESPN league to see your standing and today's moves.</p><a class="more" href="#connect">Sync league <span aria-hidden="true">→</span></a>`}
           </div>
           <div id="panel-player" hidden></div>
         </aside>
@@ -524,6 +526,7 @@ function renderOnboard(app) {
     try {
       await api('/api/settings', { leagueId: o.league.id, teamId: o.teamId, ...o.cookies });
       Object.assign(o, { busy: false, league: null, cookies: {} });
+      if (location.hash === '#connect') history.replaceState(null, '', '#home');
       await load();
     } catch (err) { o.busy = false; o.error = err.message; again(); }
   };
@@ -1026,7 +1029,7 @@ function renderPastTrades() {
   const el = $('#past');
   if (!el) return;
   const list = S.pastTrades || [];
-  if (!S.league) { el.innerHTML = '<p class="empty">Sync your ESPN league in Settings to see the trades made in it.</p>'; return; }
+  if (!S.league) { el.innerHTML = '<p class="empty"><a href="#connect">Sync your ESPN league</a> to see the trades made in it.</p>'; return; }
   if (!list.length) { el.innerHTML = '<p class="empty">No trades have gone through in this league yet. When one does, it shows up here after the next update, with a running score for each side.</p>'; return; }
   const mine = list.filter((t) => t.mine), others = list.filter((t) => !t.mine);
   el.innerHTML = `${mine.length ? mine.map(pastTradeCard).join('') : '<p class="empty">You have not made a trade this season.</p>'}
@@ -1273,7 +1276,7 @@ document.addEventListener('pointermove', (e) => {
 function renderWeek(app) {
   const w = S.week;
   if (!w) {
-    app.innerHTML = `<div class="page-head"><div><h1>This week</h1></div></div><div class="callout"><span>The weekly plan needs your league's schedule, standings and lineup slots. Sync your ESPN league first.</span><a class="btn primary" href="#settings">Sync league</a></div>`;
+    app.innerHTML = `<div class="page-head"><div><h1>This week</h1></div></div><div class="callout"><span>The weekly plan needs your league's schedule, standings and lineup slots. Sync your ESPN league first.</span><a class="btn primary" href="#connect">Sync league</a></div>`;
     return;
   }
   const my = w.my;
@@ -1334,7 +1337,7 @@ function renderWaivers(app) {
     <div class="page-head"><div><h1>Waiver wire</h1><p>The best ${pool}, by this app's rest-of-season projection, matched against the weakest players on your roster.</p></div></div>
     <div class="stack">
       <div class="panel"><header><h2>Recommended moves</h2><p>Best available for your weakest roster spots</p></header>
-        ${!S.hasRoster ? '<div class="body"><div class="callout"><span>Sync your ESPN league or add your players by hand to get add/drop recommendations.</span><a class="btn primary" href="#settings">Set up roster</a></div></div>'
+        ${!S.hasRoster ? '<div class="body"><div class="callout"><span>Sync your ESPN league or add your players by hand to get add/drop recommendations.</span><a class="btn primary" href="#connect">Set up roster</a></div></div>'
           : w.moves.length ? `<div class="trades">${w.moves.map(move).join('')}</div>`
           : '<div class="empty">No add clears the bar today: nobody available projects meaningfully above your weakest player.</div>'}
       </div>
