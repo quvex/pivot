@@ -282,9 +282,13 @@ the app (`scripts/build-site.mjs`). The app then runs Pivot's engine in the visi
 `web/shims`). The visitor's league is read straight from ESPN, whose league API accepts requests
 from other sites, and their rankings, trades and waivers are rebuilt from the day's data with
 their league's scoring and size. Settings are saved in the visitor's browser. A private league
-works when the visitor is signed in to espn.com in Chrome or Edge, which send that sign-in along;
-Safari and Firefox block it. The frozen demo is at `/demo`. The written briefing runs in the
-Action if the repository has an `ANTHROPIC_API_KEY` secret. Faces and headshots are off.
+works two ways: the visitor pastes their espn_s2 and SWID cookies, which go to ESPN through a
+small relay (`worker/espn-relay.mjs`, a free Cloudflare Worker that only forwards reads of one
+league and stores nothing; its address is the repository variable `ESPN_RELAY`), or they are
+signed in to espn.com in Chrome or Edge, which send that sign-in along. The frozen demo is at
+`/demo`. The written briefing runs in the Action if the repository has an `ANTHROPIC_API_KEY`
+secret. Headshots come from ESPN. Faces are made on the owner's computer and published with
+`npm run faces:publish`, which puts them on the repository's `faces` branch for the site to use.
 
 `PIVOT_HOSTED=1 npm start` runs the same thing as one server for many visitors instead
 (`lib/hosted.mjs`, with the root `Dockerfile`), for anyone who would rather host it.
@@ -296,14 +300,13 @@ Each figure on the home page is a realistic male base mesh (CC0, by Orange Juice
 the body by skin weight. An invisible Mixamo X Bot holds the basketball stances and the idle
 breathing, and the visible body copies its bone rotations every frame.
 
-Faces are optional, free and stay on your machine. `npm run faces:setup` installs
+Faces are optional and free. `npm run faces:setup` installs
 [TripoSR](https://github.com/VAST-AI-Research/TripoSR) (MIT) into `.faces/`, about 4 GB with
 PyTorch and the model. The court then offers to turn each player's ESPN headshot into a 3D bust,
 about 20 seconds a player on an M4 (`scripts/faces.py`, run by `lib/heads.mjs`). Each bust is
 trimmed at the neck and set on the body's head, and the body takes its skin tone from the face.
-The busts are saved in `data/heads`, which is never committed, and only the local server serves
-them. The public demo has no server, so it shows no faces: real players' likenesses aren't mine to
-publish.
+The busts are saved in `data/heads`. `npm run faces:publish` copies them to the repository's
+`faces` branch, and the public site serves them from there. The frozen demo shows no faces.
 
 ## Data and terms
 

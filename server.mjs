@@ -116,7 +116,7 @@ const server = http.createServer(async (req, res) => {
         return { ...v, job: hosted.shared.job };
       };
       if (req.method === 'GET' && url.pathname === '/api/state') { const v = await view(); return send(200, { ...buildState(v.data, v.settings, v.job), hosted: HOSTED }); }
-      if (req.method === 'GET' && url.pathname === '/api/heads') return send(200, HOSTED ? { enabled: false } : { enabled: facesInstalled(), ...headStatus() });
+      if (req.method === 'GET' && url.pathname === '/api/heads') return send(200, HOSTED ? { enabled: false, published: true, ready: headStatus().ready } : { enabled: facesInstalled(), ...headStatus() });
       if (req.method === 'GET' && url.pathname === '/api/status') {
         const d = HOSTED ? hosted.shared.data : data;
         return send(200, { job: HOSTED ? hosted.shared.job : job, refreshedAt: d?.meta.refreshedAt || null });
@@ -186,7 +186,6 @@ const server = http.createServer(async (req, res) => {
 
     // a player's face, if one has been made on this computer
     const head = /^\/heads\/(\d+)\.glb$/.exec(url.pathname);
-    if (head && HOSTED) return send(404, 'Not found', 'text/plain');
     if (head) return hasHead(head[1]) ? send(200, fs.readFileSync(headPath(head[1])), 'model/gltf-binary') : send(404, 'Not found', 'text/plain');
 
     const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);

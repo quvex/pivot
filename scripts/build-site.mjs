@@ -34,10 +34,19 @@ export async function buildSite() {
   fs.copyFileSync(path.join(pull, 'latest.json'), path.join(OUT, 'data.json'));
   fs.copyFileSync(path.join(pull, 'raw.json'), path.join(OUT, 'raw.json'));
   const html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
-  const live = html.replace('<html lang="en">', '<html lang="en" data-web="true">')
+  // the ESPN cookie relay's address (worker/), for private leagues; without it they need an espn.com sign-in
+  const relay = process.env.PIVOT_ESPN_RELAY || '';
+  if (relay && !/^(https:\/\/[\w.-]+|http:\/\/localhost:\d+)(\/[\w./-]*)?$/.test(relay)) throw new Error('PIVOT_ESPN_RELAY must be an https address');
+  const live = html.replace('<html lang="en">', `<html lang="en" data-web="true"${relay ? ` data-espn-relay="${relay}"` : ''}>`)
     .replace('<title>Pivot</title>', '<title>Pivot</title>\n  <meta name="description" content="Pivot: fantasy basketball for ESPN points leagues. Rankings, trades with reasoning, waivers and a weekly plan for your own league.">');
   if (live === html) throw new Error('Could not switch index.html into web mode');
   fs.writeFileSync(path.join(OUT, 'index.html'), live);
+  // published faces (the faces branch, checked out by the workflow; data/heads when built locally)
+  const faces = path.resolve(process.env.PIVOT_FACES_DIR || path.join(ROOT, 'data', 'heads'));
+  const heads = fs.existsSync(faces) ? fs.readdirSync(faces).filter((f) => /^\d+\.glb$/.test(f)) : [];
+  fs.mkdirSync(path.join(OUT, 'heads'), { recursive: true });
+  for (const f of heads) fs.copyFileSync(path.join(faces, f), path.join(OUT, 'heads', f));
+  fs.writeFileSync(path.join(OUT, 'heads', 'index.json'), JSON.stringify(heads.map((f) => Number(f.slice(0, -4)))));
   buildDemo(path.join(OUT, 'demo'));
   fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
   return OUT;

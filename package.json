@@ -15,7 +15,8 @@
     "demo:build": "node scripts/build-demo.mjs",
     "site:build": "node scripts/build-site.mjs",
     "shots": "node scripts/shots.mjs",
-    "faces:setup": "sh scripts/faces-setup.sh"
+    "faces:setup": "sh scripts/faces-setup.sh",
+    "faces:publish": "node scripts/publish-faces.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 
 export default [
-  { ignores: ['node_modules/', 'data/', 'site/', '.faces/'] },
+  { ignores: ['node_modules/', 'data/', 'site/', '.faces/', 'worker/.wrangler/'] },
   js.configs.recommended,
   {
     files: ['**/*.mjs'],
@@ -14,7 +14,7 @@ export default [
     },
   },
   {
-    files: ['web/**/*.mjs'],
+    files: ['web/**/*.mjs', 'worker/**/*.mjs'],
     languageOptions: { globals: { ...globals.browser } },
   },
   {

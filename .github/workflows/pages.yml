@@ -46,7 +46,12 @@ jobs:
         run: node scripts/daily-pull.mjs
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Published faces
+        run: git fetch --depth 1 origin faces && git worktree add faces-branch FETCH_HEAD || mkdir -p faces-branch
       - run: node scripts/build-site.mjs pull
+        env:
+          PIVOT_FACES_DIR: faces-branch
+          PIVOT_ESPN_RELAY: ${{ vars.ESPN_RELAY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

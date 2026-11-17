@@ -13,6 +13,7 @@ import { fetchEspnLeague, fetchEspnTrades } from '../lib/sources.mjs';
 import { STAT_LABELS, publicSettings } from '../lib/store.mjs';
 import { applyVisitor, parseVisitor, keepable, createViewer } from '../lib/visitor.mjs';
 
+globalThis.PIVOT_ESPN_RELAY = document.documentElement.dataset.espnRelay || '';
 const shared = { raw: null, data: null };
 const viewer = createViewer({ shared, build, fetchEspnLeague, fetchEspnTrades, maxBuilds: 4, maxLeagues: 20 });
 const job = { running: false, error: null, startedAt: null };
@@ -49,7 +50,11 @@ export async function api(path, body, sent) {
   const visitor = parseVisitor(sent, STAT_LABELS);
   if (p.endsWith('/api/state')) { const v = await view(visitor); return { ...buildState(v.data, v.settings, job), hosted: true, web: true }; }
   if (p.endsWith('/api/status')) { await loadData(); return { job, refreshedAt: shared.data?.meta.refreshedAt || null }; }
-  if (p.endsWith('/api/heads')) return { enabled: false };
+  if (p.endsWith('/api/heads')) {
+    // faces made on the owner's computer and published with the site (heads/index.json)
+    const res = await fetch('heads/index.json').catch(() => null);
+    return { enabled: false, published: true, ready: res?.ok ? await res.json() : [] };
+  }
   if (p.endsWith('/api/trade/offers')) {
     const v = await view(visitor);
     const num = (k) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : null);
@@ -74,7 +79,9 @@ export async function api(path, body, sent) {
     const m = String(body?.leagueId || '').match(/leagueId=(\d+)/) || String(body?.leagueId || '').match(/^\s*(\d+)\s*$/);
     if (!m) throw Object.assign(new Error('Paste your league link from fantasy.espn.com, or just the number after leagueId=.'), { code: 'bad_id' });
     try {
-      const lg = await fetchEspnLeague({ season: visitor.season, leagueId: m[1] });
+      const espnS2 = typeof body.espnS2 === 'string' && body.espnS2.trim() ? body.espnS2.trim() : visitor.espnS2;
+      const swid = typeof body.swid === 'string' && body.swid.trim() ? body.swid.trim() : visitor.swid;
+      const lg = await fetchEspnLeague({ season: visitor.season, leagueId: m[1], espnS2, swid });
       return {
         league: {
           id: lg.id, name: lg.name, season: visitor.season,

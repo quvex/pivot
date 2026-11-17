@@ -22,6 +22,8 @@ const DEMO = document.documentElement.dataset.demo === 'true';
 // The public site: no server, Pivot's engine runs in this browser on the day's shared pull.
 const WEB = document.documentElement.dataset.web === 'true';
 const engine = WEB ? import('./engine.js') : null;
+// pasted ESPN cookies work on the public site once its relay is set up (worker/espn-relay.mjs)
+const SIGN_IN_ONLY = WEB && !document.documentElement.dataset.espnRelay;
 const REPO_URL = 'https://github.com/quvex/pivot';
 let demo = null;
 async function demoApi(path, body) {
@@ -394,11 +396,11 @@ function renderHome(app) {
   const seg = stage.querySelectorAll('[data-view]');
   // the floor lettering is drawn in Bodoni Moda, so wait for the font
   // Faces are made and kept on this computer only (never in the demo): ask the server which exist.
-  const faceInfo = DEMO || S.hosted ? Promise.resolve(null) : fetch('/api/heads').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const faceInfo = DEMO ? Promise.resolve(null) : api('/api/heads').catch(() => null);
   Promise.all([import('./stage.js'), faceInfo, document.fonts?.ready]).then(([{ mountStage }, heads]) => {
     if (!stage.isConnected) return;
     const ready = new Set(heads?.ready || []);
-    const faces = heads ? { has: (id) => ready.has(id), url: (id) => `/heads/${id}.glb` } : null;
+    const faces = heads ? { has: (id) => ready.has(id), url: (id) => `heads/${id}.glb` } : null;
     const ctl = mountStage({
       faces, holdDraw: !revealed,
       canvas: $('#court'), labels: $('#col-labels'), section: stage, teams,
@@ -419,6 +421,8 @@ function renderHome(app) {
       if (!st || !facesEl) return;
       for (const id of st.ready || []) ready.add(id);
       ctl.showFaces();
+      // the public site shows the faces already made; nothing to make here
+      if (st.published) { facesEl.hidden = true; return; }
       const missing = courtIds.filter((id) => !ready.has(id));
       const busy = (st.pending || []).filter((j) => courtIds.includes(j.id));
       const failed = (st.failed || []).filter((j) => courtIds.includes(j.id));
@@ -465,8 +469,8 @@ function renderOnboard(app) {
         ${!lg ? `<form id="ob-find" class="ob-form" novalidate>
             <label for="ob-id">League link or ID</label>
             <input id="ob-id" value="${esc(o.input)}" placeholder="fantasy.espn.com/basketball/league?leagueId=…" autocomplete="off" spellcheck="false">
-            ${o.private && WEB ? `<p class="ob-help">ESPN only shows private leagues to their members. Sign in to espn.com in this browser, then try again: ESPN recognises you and lets Pivot read your league. Chrome and Edge allow this; Safari and Firefox block it, so use one of the first two, or ask your league manager to make the league viewable to the public in the league's settings.</p>`
-            : o.private ? `<p class="ob-help">ESPN only shows private leagues to their members. While signed in to espn.com, open your browser's developer tools, then Application → Cookies → espn.com, and copy these two values. ${S.hosted ? 'They are saved in this browser, not on the Pivot server, and only ever passed on to ESPN.' : 'They stay on this computer and are only ever sent to ESPN.'}</p>
+            ${o.private && SIGN_IN_ONLY ? `<p class="ob-help">ESPN only shows private leagues to their members. Sign in to espn.com in this browser, then try again: ESPN recognises you and lets Pivot read your league. Chrome and Edge allow this; Safari and Firefox block it, so use one of the first two, or ask your league manager to make the league viewable to the public in the league's settings.</p>`
+            : o.private ? `<p class="ob-help">ESPN only shows private leagues to their members. While signed in to espn.com, open your browser's developer tools, then Application → Cookies → espn.com, and copy these two values. ${WEB ? 'They are saved in this browser and pass through Pivot\'s relay only on their way to ESPN; nothing is stored or logged.' : S.hosted ? 'They are saved in this browser, not on the Pivot server, and only ever passed on to ESPN.' : 'They stay on this computer and are only ever sent to ESPN.'}</p>
               <label for="ob-s2">espn_s2</label><input id="ob-s2" type="password" autocomplete="off">
               <label for="ob-swid">SWID</label><input id="ob-swid" type="password" autocomplete="off" placeholder="{XXXXXXXX-XXXX-…}">`
             : '<p class="ob-help">Open your league on fantasy.espn.com and copy the address from the browser bar.</p>'}
@@ -491,8 +495,8 @@ function renderOnboard(app) {
       if (o.busy) return;
       o.input = $('#ob-id').value.trim();
       if (!o.input) { o.error = 'Paste your league link or ID first.'; return again(); }
-      const cookies = o.private && !WEB ? { espnS2: $('#ob-s2').value.trim(), swid: $('#ob-swid').value.trim() } : {};
-      if (o.private && !WEB && (!cookies.espnS2 || !cookies.swid)) { o.error = 'Both cookies are needed for a private league.'; return again(); }
+      const cookies = o.private && !SIGN_IN_ONLY ? { espnS2: $('#ob-s2').value.trim(), swid: $('#ob-swid').value.trim() } : {};
+      if (o.private && !SIGN_IN_ONLY && (!cookies.espnS2 || !cookies.swid)) { o.error = 'Both cookies are needed for a private league.'; return again(); }
       o.busy = true; o.error = ''; again();
       try {
         const { league } = await api('/api/league/preview', { leagueId: o.input, ...cookies });
@@ -576,7 +580,7 @@ function h2hStandings(w) {
 // One ranked list in the style of Bleacher Report's NBA 100. Each row carries the numbers you
 // scan (projection, recent form, ownership, today's change); opening it shows every source's rank,
 // the read on the player and a rating breakdown.
-const headshot = (p) => (DEMO || S?.hosted ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=96&h=70&cb=1`);
+const headshot = (p) => (DEMO ? '' : `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${p.id}.png&w=96&h=70&cb=1`);
 const TEAM_NAMES = { ATL: 'Hawks', BOS: 'Celtics', BKN: 'Nets', CHA: 'Hornets', CHI: 'Bulls', CLE: 'Cavaliers', DAL: 'Mavericks', DEN: 'Nuggets', DET: 'Pistons', GSW: 'Warriors', HOU: 'Rockets', IND: 'Pacers', LAC: 'Clippers', LAL: 'Lakers', MEM: 'Grizzlies', MIA: 'Heat', MIL: 'Bucks', MIN: 'Timberwolves', NOP: 'Pelicans', NYK: 'Knicks', OKC: 'Thunder', ORL: 'Magic', PHI: '76ers', PHX: 'Suns', POR: 'Trail Blazers', SAC: 'Kings', SAS: 'Spurs', TOR: 'Raptors', UTA: 'Jazz', WAS: 'Wizards', FA: 'Free agent' };
 
 // Ratings: Pivot's model rank stretched onto 99 down to 40, and each skill as a percentile among
@@ -1419,7 +1423,7 @@ function renderSettings(app) {
             <span class="hint">Open your league on fantasy.espn.com; the number after <code>leagueId=</code> in the address bar.</span></div>
           ${S.hosted ? '' : `<div class="field"><label for="season">Season (the year it ends)</label><input id="season" type="number" value="${esc(s.season)}" style="width:120px"></div>`}
           ${S.league ? `<div class="field"><label for="teamId">My team</label><select id="teamId"><option value="">Choose…</option>${S.league.teams.map((t) => `<option value="${t.id}" ${S.myTeam?.id === t.id ? 'selected' : ''}>${esc(t.name)}${t.owner ? ` (${esc(t.owner)})` : ''}</option>`).join('')}</select></div>` : ''}
-          ${WEB ? '<p class="hint">Private league? Sign in to espn.com in this browser (Chrome or Edge) and ESPN lets Pivot read it. Or ask your league manager to make the league viewable to the public.</p>' : `<div class="field"><label>Private league cookies ${s.hasEspnCookies ? '<span class="chip good">Saved</span>' : ''}</label>
+          ${SIGN_IN_ONLY ? '<p class="hint">Private league? Sign in to espn.com in this browser (Chrome or Edge) and ESPN lets Pivot read it. Or ask your league manager to make the league viewable to the public.</p>' : `<div class="field"><label>Private league cookies ${s.hasEspnCookies ? '<span class="chip good">Saved</span>' : ''}</label>
             <input id="espnS2" type="password" placeholder="${s.hasEspnCookies ? 'espn_s2 saved (leave blank to keep)' : 'espn_s2'}" autocomplete="off">
             <input id="swid" type="password" placeholder="${s.hasEspnCookies ? 'SWID saved (leave blank to keep)' : 'SWID, including the {braces}'}" autocomplete="off">
             <span class="hint">Only needed if the league is not public. While logged in to espn.com: browser dev tools → Application → Cookies → espn.com, copy <code>espn_s2</code> and <code>SWID</code>.${s.hasEspnCookies ? ' <button type="button" class="btn link" id="clear-espn">Remove saved cookies</button>' : ''}</span></div>`}
